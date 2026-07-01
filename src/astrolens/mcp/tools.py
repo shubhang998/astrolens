@@ -2,8 +2,16 @@
 
 from typing import Any
 
-from astrolens.core.enums import BandFamily
+from astrolens.core.enums import BandFamily, ErrorCode
+from astrolens.core.errors import AstroLensError
 from astrolens.mcp.gallery_component import GALLERY_URI
+from astrolens.mcp.hardening import (
+    MCP_MAX_COMPARE_VIEWS_PER_BAND,
+    MCP_MAX_VIEWS,
+    MCP_OBSERVATION_LIMIT,
+    MCP_SEARCH_LIMIT,
+    bounded_int,
+)
 from astrolens.services.assets import asset_service
 from astrolens.services.evidence import evidence_service
 from astrolens.services.fits_renderer import (
@@ -36,7 +44,18 @@ def _band(value: str) -> BandFamily:
         "x_ray": "xray",
         "x-ray": "xray",
     }
-    return BandFamily(aliases.get(normalized, normalized))
+    try:
+        return BandFamily(aliases.get(normalized, normalized))
+    except ValueError as exc:
+        raise AstroLensError(
+            ErrorCode.UNSUPPORTED_BAND,
+            f"Unsupported wavelength band '{value}'.",
+            retryable=False,
+            details={
+                "band": value,
+                "supported_bands": [band.value for band in BandFamily],
+            },
+        ) from exc
 
 
 def _missions(value: Any) -> tuple[str, ...]:
@@ -75,6 +94,46 @@ def _object_id(value: str) -> str:
     return value
 
 
+def _search_limit(arguments: dict[str, Any]) -> int:
+    return bounded_int(
+        arguments.get("limit"),
+        default=MCP_SEARCH_LIMIT,
+        minimum=1,
+        maximum=MCP_SEARCH_LIMIT,
+    )
+
+
+def _observation_limit(arguments: dict[str, Any]) -> int:
+    return bounded_int(
+        arguments.get("limit"),
+        default=MCP_OBSERVATION_LIMIT,
+        minimum=1,
+        maximum=MCP_OBSERVATION_LIMIT,
+    )
+
+
+def _max_views(arguments: dict[str, Any]) -> int:
+    return bounded_int(
+        arguments.get("max_views"),
+        default=MCP_MAX_VIEWS,
+        minimum=1,
+        maximum=MCP_MAX_VIEWS,
+    )
+
+
+def _max_compare_views_per_band(arguments: dict[str, Any]) -> int:
+    return bounded_int(
+        arguments.get("max_views_per_band"),
+        default=1,
+        minimum=1,
+        maximum=MCP_MAX_COMPARE_VIEWS_PER_BAND,
+    )
+
+
+def _pixels(arguments: dict[str, Any]) -> int:
+    return bounded_int(arguments.get("pixels"), default=1024, minimum=64, maximum=2048)
+
+
 READ_ONLY_ANNOTATIONS = {
     "readOnlyHint": True,
     "destructiveHint": False,
@@ -102,7 +161,12 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "query": {"type": "string"},
-                "limit": {"type": "integer", "default": 10},
+                "limit": {
+                    "type": "integer",
+                    "default": 10,
+                    "minimum": 1,
+                    "maximum": MCP_SEARCH_LIMIT,
+                },
             },
             "required": ["query"],
         },
@@ -144,7 +208,12 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "properties": {
                 "object": {"type": "string"},
                 "bands": {"type": "array", "items": {"type": "string"}},
-                "limit": {"type": "integer", "default": 20},
+                "limit": {
+                    "type": "integer",
+                    "default": 20,
+                    "minimum": 1,
+                    "maximum": MCP_OBSERVATION_LIMIT,
+                },
                 "live": {"type": "boolean", "default": False},
                 "radius_deg": {"type": "number", "default": 0.03},
                 "rank_mode": {
@@ -181,7 +250,12 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "properties": {
                 "object": {"type": "string"},
                 "bands": {"type": "array", "items": {"type": "string"}},
-                "max_views": {"type": "integer", "default": 6},
+                "max_views": {
+                    "type": "integer",
+                    "default": 6,
+                    "minimum": 1,
+                    "maximum": MCP_MAX_VIEWS,
+                },
                 "live": {"type": "boolean", "default": False},
                 "radius_deg": {"type": "number", "default": 0.03},
                 "rank_mode": {
@@ -217,7 +291,12 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "properties": {
                 "object": {"type": "string"},
                 "bands": {"type": "array", "items": {"type": "string"}},
-                "max_views": {"type": "integer", "default": 6},
+                "max_views": {
+                    "type": "integer",
+                    "default": 6,
+                    "minimum": 1,
+                    "maximum": MCP_MAX_VIEWS,
+                },
                 "live": {"type": "boolean", "default": False},
                 "radius_deg": {"type": "number", "default": 0.03},
                 "rank_mode": {
@@ -254,7 +333,12 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "properties": {
                 "object": {"type": "string"},
                 "bands": {"type": "array", "items": {"type": "string"}},
-                "max_views_per_band": {"type": "integer", "default": 1},
+                "max_views_per_band": {
+                    "type": "integer",
+                    "default": 1,
+                    "minimum": 1,
+                    "maximum": MCP_MAX_COMPARE_VIEWS_PER_BAND,
+                },
                 "live": {"type": "boolean", "default": False},
                 "radius_deg": {"type": "number", "default": 0.03},
                 "rank_mode": {
@@ -397,7 +481,12 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "object": {"type": "string"},
-                "max_views": {"type": "integer", "default": 6},
+                "max_views": {
+                    "type": "integer",
+                    "default": 6,
+                    "minimum": 1,
+                    "maximum": MCP_MAX_VIEWS,
+                },
                 "live": {"type": "boolean", "default": True},
                 "radius_deg": {"type": "number", "default": 0.03},
                 "missions": {
@@ -424,7 +513,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
     """Dispatch an MCP tool call."""
 
     if name == "search":
-        limit = int(arguments.get("limit", 10))
+        limit = _search_limit(arguments)
         results = repository.find_objects(str(arguments["query"]), limit=limit)
         return {
             "results": [
@@ -452,13 +541,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
             bundle = await live_source_evidence_service.bundle_for_query(
                 str(arguments["object"]),
                 bands=_bands(arguments.get("bands")),
-                max_views=int(arguments.get("limit", 20)),
+                max_views=_observation_limit(arguments),
                 radius_deg=float(arguments.get("radius_deg", 0.03)),
                 missions=_missions(arguments.get("missions")),
                 rank_mode=str(arguments.get("rank_mode", "best_visual")),
                 sources=_sources(arguments.get("sources")),
                 skyview_surveys=_skyview_surveys(arguments.get("skyview_surveys")),
-                pixels=int(arguments.get("pixels", 1024)),
+                pixels=_pixels(arguments),
             )
             return {
                 "object": bundle.object.model_dump(mode="json"),
@@ -472,7 +561,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
         observations = repository.observations_for_object(
             object_id,
             _bands(arguments.get("bands")),
-        )[: int(arguments.get("limit", 20))]
+        )[: _observation_limit(arguments)]
         return {
             "object_id": object_id,
             "observations": [obs.model_dump(mode="json") for obs in observations],
@@ -483,32 +572,32 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
                 await live_source_evidence_service.bundle_for_query(
                     str(arguments["object"]),
                     bands=_bands(arguments.get("bands")),
-                    max_views=int(arguments.get("max_views", 6)),
+                    max_views=_max_views(arguments),
                     radius_deg=float(arguments.get("radius_deg", 0.03)),
                     missions=_missions(arguments.get("missions")),
                     rank_mode=str(arguments.get("rank_mode", "best_visual")),
                     sources=_sources(arguments.get("sources")),
                     skyview_surveys=_skyview_surveys(arguments.get("skyview_surveys")),
-                    pixels=int(arguments.get("pixels", 1024)),
+                    pixels=_pixels(arguments),
                 )
             ).model_dump(mode="json")
         return evidence_service.bundle_for_query(
             str(arguments["object"]),
             bands=_bands(arguments.get("bands")),
-            max_views=int(arguments.get("max_views", 6)),
+            max_views=_max_views(arguments),
         ).model_dump(mode="json")
     if name == "get_best_views":
         if bool(arguments.get("live", False)):
             bundle = await live_source_evidence_service.bundle_for_query(
                 str(arguments["object"]),
                 bands=_bands(arguments.get("bands")),
-                max_views=int(arguments.get("max_views", 6)),
+                max_views=_max_views(arguments),
                 radius_deg=float(arguments.get("radius_deg", 0.03)),
                 missions=_missions(arguments.get("missions")),
                 rank_mode=str(arguments.get("rank_mode", "best_visual")),
                 sources=_sources(arguments.get("sources")),
                 skyview_surveys=_skyview_surveys(arguments.get("skyview_surveys")),
-                pixels=int(arguments.get("pixels", 1024)),
+                pixels=_pixels(arguments),
             )
             return {
                 "object_id": bundle.object.id,
@@ -522,7 +611,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
         views = rank_views(
             repository.views_for_object(object_id, bands),
             bands=bands,
-            max_views=int(arguments.get("max_views", 6)),
+            max_views=_max_views(arguments),
         )
         return {"object_id": object_id, "views": [view.model_dump(mode="json") for view in views]}
     if name == "compare_wavelengths":
@@ -531,7 +620,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
         return evidence_service.compare(
             str(arguments["object"]),
             bands=_bands(arguments.get("bands")) or [],
-            max_views_per_band=int(arguments.get("max_views_per_band", 1)),
+            max_views_per_band=_max_compare_views_per_band(arguments),
         ).model_dump(mode="json")
     if name == "get_asset":
         return asset_service.get_asset(str(arguments["asset_id"])).model_dump(mode="json")
@@ -587,7 +676,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
     if name == "get_visual_provenance":
         bundle = await _bundle_for_visual_tool(
             arguments,
-            max_views=int(arguments.get("max_views", 6)),
+            max_views=_max_views(arguments),
         )
         return {
             "object": bundle.object.model_dump(mode="json"),
@@ -630,7 +719,7 @@ def _live_observation_row(view: Any) -> dict[str, Any]:
 
 async def _compare_live_wavelengths(arguments: dict[str, Any]) -> dict[str, Any]:
     bands = _bands(arguments.get("bands")) or []
-    max_views_per_band = int(arguments.get("max_views_per_band", 1))
+    max_views_per_band = _max_compare_views_per_band(arguments)
     bundle = await live_source_evidence_service.bundle_for_query(
         str(arguments["object"]),
         bands=bands or None,
@@ -640,7 +729,7 @@ async def _compare_live_wavelengths(arguments: dict[str, Any]) -> dict[str, Any]
         rank_mode=str(arguments.get("rank_mode", "best_visual")),
         sources=_sources(arguments.get("sources")),
         skyview_surveys=_skyview_surveys(arguments.get("skyview_surveys")),
-        pixels=int(arguments.get("pixels", 1024)),
+        pixels=_pixels(arguments),
     )
     comparison: list[dict[str, Any]] = []
     for band in bands:
@@ -699,7 +788,7 @@ async def _bundle_for_visual_tool(
             rank_mode=str(arguments.get("rank_mode", "best_visual")),
             sources=_sources(arguments.get("sources")),
             skyview_surveys=_skyview_surveys(arguments.get("skyview_surveys")),
-            pixels=int(arguments.get("pixels", 1024)),
+            pixels=_pixels(arguments),
         )
     return evidence_service.bundle_for_query(
         str(arguments["object"]),

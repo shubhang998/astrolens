@@ -66,6 +66,8 @@ Connectors must:
 
 - Use source-specific timeouts.
 - Use bounded retries with exponential backoff where safe.
+- Map timeouts, rate limits, access denials, malformed source responses, and
+  source outages to typed `AstroLensError` codes.
 - Use circuit breakers/source health where repeated failures occur.
 - Normalize output into domain candidate models.
 - Preserve raw source metadata under `raw_metadata`.
@@ -156,6 +158,9 @@ Current implementation:
 - Fallback/custom surveys: DSS2 Blue/Red/IR and NVSS remain supported when users need wider coverage.
 - Product shape: HTTPS generated FITS URLs with survey name, band family, source record ID, and raw metadata.
 - Asset shape: AstroLens-rendered PNG previews or RGB composites from those FITS files, with rendering caveats.
+- Custom survey input is bounded to AstroLens-known `SURVEY_SPECS`; arbitrary
+  unknown survey names or URL-like strings must not be passed through to the
+  SkyView client.
 
 Do not let users pass arbitrary FITS URLs through this connector. The connector should only use bounded survey names and generated URLs returned by SkyView.
 

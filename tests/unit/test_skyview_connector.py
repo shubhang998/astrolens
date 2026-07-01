@@ -127,6 +127,23 @@ def test_skyview_connector_empty_response_is_warning_not_crash() -> None:
     assert "no public generated fits urls" in result.warnings[-1].lower()
 
 
+def test_skyview_connector_ignores_unbounded_survey_names() -> None:
+    client = FakeSkyViewClient()
+    connector = SkyViewConnector(client=client)
+
+    result = asyncio.run(
+        connector.search_generated_fits(
+            ra_deg=187.70593077,
+            dec_deg=12.39112325,
+            surveys=["https://example.test/arbitrary.fits", "Not A SkyView Survey"],
+        )
+    )
+
+    assert result.products == []
+    assert client.calls == []
+    assert "no supported skyview surveys" in result.warnings[0].lower()
+
+
 def test_skyview_connector_source_error_maps_to_astrolens_error() -> None:
     connector = SkyViewConnector(client=FakeSkyViewClient(error=RuntimeError("upstream down")))
 

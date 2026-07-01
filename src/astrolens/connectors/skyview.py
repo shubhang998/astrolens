@@ -344,7 +344,14 @@ def survey_specs_for_request(
     """Return deterministic bounded survey specs for a request."""
 
     if surveys:
-        return [_spec_for_survey(survey) for survey in surveys if survey.strip()]
+        specs: list[SkyViewSurveySpec] = []
+        for survey in surveys:
+            if not survey.strip():
+                continue
+            spec = SURVEY_SPECS_BY_NAME.get(normalize_query(survey))
+            if spec:
+                specs.append(spec)
+        return specs
     selected_bands = list(dict.fromkeys(bands or DEFAULT_SURVEY_NAMES_BY_BAND.keys()))
     specs: list[SkyViewSurveySpec] = []
     for band in selected_bands:
@@ -370,22 +377,9 @@ def skyview_source_record_id(
     )
 
 
-def _spec_for_survey(survey: str) -> SkyViewSurveySpec:
-    normalized = normalize_query(survey)
-    known = SURVEY_SPECS_BY_NAME.get(normalized)
-    if known:
-        return known
-    return SkyViewSurveySpec(
-        survey=survey.strip(),
-        band_family=BandFamily.UNKNOWN,
-        wavelength_nm=None,
-        description="user-selected SkyView survey",
-    )
-
-
 def _astroquery_skyview_client() -> Any:
     try:
-        from astroquery.skyview import SkyView
+        from astroquery.skyview import SkyView  # type: ignore[reportMissingImports]
     except ModuleNotFoundError as exc:
         raise AstroLensError(
             ErrorCode.SOURCE_UNAVAILABLE,

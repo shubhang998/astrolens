@@ -1,8 +1,11 @@
+import json
+
 from fastapi.testclient import TestClient
 
 from astrolens.api.main import app
 from astrolens.api.routes import evidence as evidence_route
-from astrolens.core.enums import CacheStatus
+from astrolens.core.enums import CacheStatus, ErrorCode
+from astrolens.core.errors import AstroLensError
 from astrolens.core.models import CacheMeta, EvidenceBundle, ResponseMeta
 from astrolens.mcp import tools as mcp_tools
 from astrolens.services.repository import repository
@@ -14,6 +17,25 @@ def _fake_live_bundle() -> EvidenceBundle:
     return EvidenceBundle(
         object=repository.get_object("astro:object:m87"),
         views=[],
+        warnings=[],
+        meta=ResponseMeta(request_id="req_test", cache=CacheMeta(status=CacheStatus.MISS)),
+    )
+
+
+def _fake_live_bundle_with_heavy_raw_metadata() -> EvidenceBundle:
+    view = repository.views_for_object("astro:object:m87")[0].model_copy(deep=True)
+    product = view.raw_products[0].model_copy(deep=True)
+    product.raw_metadata = {
+        "productFilename": "kept-preview.jpg",
+        "dataURI": "mast:HST/product/kept-preview.jpg",
+        "description": "stable source field",
+        "giant_field": "x" * 20_000,
+        "nested_archive_dump": {"unused": "y" * 5_000},
+    }
+    view.raw_products = [product]
+    return EvidenceBundle(
+        object=repository.get_object("astro:object:m87"),
+        views=[view],
         warnings=[],
         meta=ResponseMeta(request_id="req_test", cache=CacheMeta(status=CacheStatus.MISS)),
     )
@@ -127,6 +149,18 @@ def test_mcp_lists_and_calls_read_only_tools() -> None:
     result = tool_result["structuredContent"]
     assert result["object"]["id"] == "astro:object:m87"
     assert len(result["views"]) == 2
+    assert tool_result["_meta"]["astrolens/schemaVersion"] == "astrolens.mcp.v1"
+
+
+def test_mcp_tool_schemas_publish_response_bounds() -> None:
+    listed = client.post("/mcp", json={"jsonrpc": "2.0", "id": 20, "method": "tools/list"})
+    tools = {tool["name"]: tool for tool in listed.json()["result"]["tools"]}
+
+    evidence_schema = tools["get_object_evidence"]["inputSchema"]["properties"]
+    search_schema = tools["search"]["inputSchema"]["properties"]
+
+    assert evidence_schema["max_views"]["maximum"] == 6
+    assert search_schema["limit"]["maximum"] == 10
 
 
 def test_live_evidence_route_uses_live_service(monkeypatch) -> None:
@@ -246,6 +280,117 @@ def test_mcp_get_object_evidence_supports_live_argument(monkeypatch) -> None:
     assert seen["sources"] == ("skyview",)
     assert seen["skyview_surveys"] == ["DSS2 Red"]
     assert seen["pixels"] == 256
+
+
+def test_mcp_compacts_raw_metadata_in_structured_content(monkeypatch) -> None:
+    async def fake_bundle_for_query(*args, **kwargs) -> EvidenceBundle:
+        return _fake_live_bundle_with_heavy_raw_metadata()
+
+    monkeypatch.setattr(
+        mcp_tools.live_source_evidence_service,
+        "bundle_for_query",
+        fake_bundle_for_query,
+    )
+
+    called = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {
+                "name": "get_object_evidence",
+                "arguments": {"object": "M87", "live": True, "max_views": 99},
+            },
+        },
+    )
+
+    assert called.status_code == 200
+    tool_result = called.json()["result"]
+    product = tool_result["structuredContent"]["views"][0]["raw_products"][0]
+    raw_metadata = product["raw_metadata"]
+    assert raw_metadata["productFilename"] == "kept-preview.jpg"
+    assert "giant_field" not in raw_metadata
+    assert "giant_field" in raw_metadata["_omitted_keys"]
+    assert len(json.dumps(tool_result["structuredContent"])) < 25_000
+    assert tool_result["_meta"]["astrolens/responseProfile"] == "compact-v1"
+
+
+def test_mcp_maps_source_errors_to_json_rpc_error(monkeypatch) -> None:
+    async def failing_bundle_for_query(*args, **kwargs) -> EvidenceBundle:
+        raise AstroLensError(
+            ErrorCode.SOURCE_TIMEOUT,
+            "MAST did not respond before the timeout.",
+            retryable=True,
+            details={"source": "MAST", "error": "hidden source detail"},
+        )
+
+    monkeypatch.setattr(
+        mcp_tools.live_source_evidence_service,
+        "bundle_for_query",
+        failing_bundle_for_query,
+    )
+
+    called = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "tools/call",
+            "params": {
+                "name": "get_object_evidence",
+                "arguments": {"object": "M87", "live": True},
+            },
+        },
+    )
+
+    assert called.status_code == 200
+    payload = called.json()
+    assert payload["error"]["code"] == -32002
+    assert payload["error"]["data"]["code"] == "SOURCE_TIMEOUT"
+    assert payload["error"]["data"]["retryable"] is True
+    assert "Traceback" not in json.dumps(payload)
+
+
+def test_mcp_unsupported_band_returns_structured_error() -> None:
+    called = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "tools/call",
+            "params": {
+                "name": "get_object_evidence",
+                "arguments": {"object": "M87", "bands": ["microwave"]},
+            },
+        },
+    )
+
+    assert called.status_code == 200
+    payload = called.json()
+    assert payload["error"]["code"] == -32602
+    assert payload["error"]["data"]["code"] == "UNSUPPORTED_BAND"
+
+
+def test_rest_source_errors_use_gateway_status_codes(monkeypatch) -> None:
+    async def failing_bundle_for_query(*args, **kwargs) -> EvidenceBundle:
+        raise AstroLensError(
+            ErrorCode.SOURCE_TIMEOUT,
+            "MAST did not respond before the timeout.",
+            retryable=True,
+            details={"source": "MAST"},
+        )
+
+    monkeypatch.setattr(
+        evidence_route.live_source_evidence_service,
+        "bundle_for_query",
+        failing_bundle_for_query,
+    )
+
+    response = client.get("/v1/evidence", params={"q": "M87", "live": "true"})
+
+    assert response.status_code == 504
+    assert response.json()["error"]["code"] == "SOURCE_TIMEOUT"
 
 
 def test_mcp_exposes_gallery_resource_for_chatgpt_apps() -> None:

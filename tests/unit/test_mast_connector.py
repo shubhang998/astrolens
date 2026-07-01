@@ -1,7 +1,11 @@
 import asyncio
 import json
+from email.message import Message
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError
+
+import pytest
 
 from astrolens.connectors.base import ResolvedObjectCandidate
 from astrolens.connectors.mast import (
@@ -12,7 +16,8 @@ from astrolens.connectors.mast import (
     MastProductSummary,
     mast_download_url,
 )
-from astrolens.core.enums import BandFamily, TargetValidationStatus, VisualAssetTier
+from astrolens.core.enums import BandFamily, ErrorCode, TargetValidationStatus, VisualAssetTier
+from astrolens.core.errors import AstroLensError
 from astrolens.services.live_evidence import LiveEvidenceService
 from astrolens.services.live_ingestion import LiveIngestionService
 from astrolens.services.preview_image_quality import (
@@ -319,6 +324,46 @@ def test_mast_fixture_search_normalizes_observations_and_products() -> None:
     assert result.observations[0].wavelength_min_nm == 1300.0
     assert result.products_by_observation[0].products[0].file_format == "jpg"
     assert result.products_by_observation[0].products[0].download_url is not None
+
+
+def test_mast_invoke_maps_timeout_to_source_timeout(monkeypatch) -> None:
+    connector = MastConnector()
+    connector.retry_count = 0
+
+    def fake_urlopen(*_args: Any, **_kwargs: Any) -> None:
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr("astrolens.connectors.mast.urlopen", fake_urlopen)
+
+    with pytest.raises(AstroLensError) as exc_info:
+        connector._invoke_sync({"service": "Mast.Caom.Products", "params": {}})
+
+    assert exc_info.value.code == ErrorCode.SOURCE_TIMEOUT
+    assert exc_info.value.retryable is True
+    assert exc_info.value.details["source"] == "MAST"
+
+
+def test_mast_invoke_maps_http_429_to_rate_limited(monkeypatch) -> None:
+    connector = MastConnector()
+    connector.retry_count = 0
+
+    def fake_urlopen(*_args: Any, **_kwargs: Any) -> None:
+        raise HTTPError(
+            url="https://mast.stsci.edu/api/v0/invoke",
+            code=429,
+            msg="Too Many Requests",
+            hdrs=Message(),
+            fp=None,
+        )
+
+    monkeypatch.setattr("astrolens.connectors.mast.urlopen", fake_urlopen)
+
+    with pytest.raises(AstroLensError) as exc_info:
+        connector._invoke_sync({"service": "Mast.Caom.Products", "params": {}})
+
+    assert exc_info.value.code == ErrorCode.RATE_LIMITED
+    assert exc_info.value.retryable is True
+    assert exc_info.value.details["http_status"] == 429
 
 
 def test_mast_search_deduplicates_observation_rows_before_limit() -> None:

@@ -6,7 +6,15 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from astrolens import __version__
+from astrolens.core.enums import ErrorCode
+from astrolens.core.errors import AstroLensError
 from astrolens.mcp.gallery_component import GALLERY_HTML, GALLERY_RESOURCE, GALLERY_RESOURCE_META
+from astrolens.mcp.hardening import (
+    MCP_MAX_RESPONSE_BYTES,
+    MCP_RESPONSE_PROFILE,
+    MCP_SCHEMA_VERSION,
+    compact_mcp_payload,
+)
 from astrolens.mcp.tools import TOOL_DEFINITIONS, call_tool
 
 router = APIRouter(tags=["mcp"])
@@ -18,9 +26,17 @@ def _mcp_tool_result(payload: Any, *, base_url: str | None = None) -> dict[str, 
     structured = payload if isinstance(payload, dict) else {"result": payload}
     if base_url:
         structured = _absolutize_relative_asset_urls(structured, base_url=base_url)
+    structured = compact_mcp_payload(structured)
+    structured_json = json.dumps(structured, separators=(",", ":"), default=str)
     return {
         "structuredContent": structured,
         "content": [{"type": "text", "text": _summary_for_payload(structured)}],
+        "_meta": {
+            "astrolens/schemaVersion": MCP_SCHEMA_VERSION,
+            "astrolens/responseProfile": MCP_RESPONSE_PROFILE,
+            "astrolens/structuredContentBytes": len(structured_json.encode("utf-8")),
+            "astrolens/maxStructuredContentBytes": MCP_MAX_RESPONSE_BYTES,
+        },
     }
 
 
@@ -145,7 +161,35 @@ async def mcp_endpoint(payload: dict[str, Any], request: Request) -> dict[str, A
         }
     if method == "tools/call":
         params = payload.get("params", {})
-        result = await call_tool(str(params["name"]), dict(params.get("arguments", {})))
+        try:
+            tool_name = str(params["name"])
+            result = await call_tool(tool_name, dict(params.get("arguments", {})))
+        except AstroLensError as exc:
+            return _mcp_error_response(request_id, exc)
+        except (KeyError, TypeError, ValueError) as exc:
+            return _mcp_error_response(
+                request_id,
+                AstroLensError(
+                    ErrorCode.UNSUPPORTED_BAND
+                    if "band" in str(exc).lower()
+                    else ErrorCode.INTERNAL_ERROR,
+                    _safe_invalid_params_message(exc),
+                    retryable=False,
+                    details={"error_type": type(exc).__name__},
+                ),
+                json_rpc_code=-32602,
+            )
+        except Exception as exc:  # pragma: no cover - defensive MCP boundary
+            return _mcp_error_response(
+                request_id,
+                AstroLensError(
+                    ErrorCode.INTERNAL_ERROR,
+                    "AstroLens MCP tool call failed.",
+                    retryable=False,
+                    details={"error_type": type(exc).__name__},
+                ),
+                json_rpc_code=-32603,
+            )
         return {
             "jsonrpc": "2.0",
             "id": request_id,
@@ -156,3 +200,50 @@ async def mcp_endpoint(payload: dict[str, Any], request: Request) -> dict[str, A
         "id": request_id,
         "error": {"code": -32601, "message": f"Unsupported method: {method}"},
     }
+
+
+def _mcp_error_response(
+    request_id: Any,
+    exc: AstroLensError,
+    *,
+    json_rpc_code: int | None = None,
+) -> dict[str, Any]:
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "error": {
+            "code": json_rpc_code if json_rpc_code is not None else _json_rpc_code(exc.code),
+            "message": exc.message,
+            "data": compact_mcp_payload(
+                {
+                    "code": exc.code,
+                    "retryable": exc.retryable,
+                    "details": exc.details,
+                    "schema_version": MCP_SCHEMA_VERSION,
+                }
+            ),
+        },
+    }
+
+
+def _json_rpc_code(code: ErrorCode) -> int:
+    if code in {ErrorCode.INVALID_COORDINATES, ErrorCode.UNSUPPORTED_BAND}:
+        return -32602
+    if code == ErrorCode.OBJECT_NOT_FOUND:
+        return -32004
+    if code in {ErrorCode.SOURCE_UNAVAILABLE, ErrorCode.RATE_LIMITED}:
+        return -32001
+    if code == ErrorCode.SOURCE_TIMEOUT:
+        return -32002
+    if code in {ErrorCode.PRODUCT_NOT_PUBLIC, ErrorCode.RENDER_NOT_SUPPORTED}:
+        return -32003
+    return -32603
+
+
+def _safe_invalid_params_message(exc: Exception) -> str:
+    if isinstance(exc, KeyError):
+        return "MCP tool call is missing a required parameter."
+    message = str(exc)
+    if not message:
+        return "MCP tool call parameters are invalid."
+    return message[:300]

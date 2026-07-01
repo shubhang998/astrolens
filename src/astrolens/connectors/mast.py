@@ -11,6 +11,7 @@ from urllib.request import Request, urlopen
 
 from pydantic import Field
 
+from astrolens.connectors.error_mapping import connector_error_from_exception
 from astrolens.core.enums import BandFamily, ErrorCode, SourceHealthStatus
 from astrolens.core.errors import AstroLensError
 from astrolens.core.models import AstroLensModel, SourceHealth
@@ -525,16 +526,26 @@ class MastConnector:
                         details={"source": self.name},
                     )
                 return decoded
-            except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+            except json.JSONDecodeError as exc:
                 last_error = exc
                 if attempt < self.retry_count:
                     sleep(0.6 * (2**attempt))
                     continue
                 raise AstroLensError(
                     ErrorCode.SOURCE_UNAVAILABLE,
-                    "MAST live archive query failed.",
+                    "MAST returned malformed JSON.",
                     retryable=True,
-                    details={"source": self.name, "error": str(exc)},
+                    details={"source": self.name, "error_type": type(exc).__name__},
+                ) from exc
+            except (HTTPError, URLError, TimeoutError, OSError) as exc:
+                last_error = exc
+                if attempt < self.retry_count:
+                    sleep(0.6 * (2**attempt))
+                    continue
+                raise connector_error_from_exception(
+                    exc,
+                    source=self.name,
+                    message="MAST live archive query failed.",
                 ) from exc
             except AstroLensError:
                 raise
