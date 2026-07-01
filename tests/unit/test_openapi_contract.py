@@ -15,6 +15,11 @@ def test_openapi_exposes_milestone_1_paths_and_core_schemas() -> None:
     assert "/v1/sources/health" in payload["paths"]
     assert "/v1/render/fits-plan" in payload["paths"]
 
+    evidence_parameters = {
+        parameter["name"] for parameter in payload["paths"]["/v1/evidence"]["get"]["parameters"]
+    }
+    assert "visual_mode" in evidence_parameters
+
     schemas = payload["components"]["schemas"]
     for schema_name in [
         "CelestialObject",

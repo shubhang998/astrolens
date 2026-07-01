@@ -16,10 +16,11 @@ from astrolens.connectors.base import (
     ResolvedObjectCandidate,
     SkyRegion,
 )
-from astrolens.core.enums import BandFamily, ErrorCode, SourceHealthStatus
+from astrolens.core.enums import BandFamily, ErrorCode, SourceHealthStatus, VisualMode
 from astrolens.core.errors import AstroLensError, UnsupportedConnectorOperation
 from astrolens.core.models import AstroLensModel, Citation, PublicUrl, SourceHealth
 from astrolens.services.repository import normalize_query
+from astrolens.services.visual_modes import coerce_visual_mode
 
 SKYVIEW_SOURCE_URL = "https://skyview.gsfc.nasa.gov/current/cgi/query.pl"
 SKYVIEW_DOCS_URL = "https://skyview.gsfc.nasa.gov/current/help/help.html"
@@ -212,10 +213,13 @@ class SkyViewConnector:
         bands: list[BandFamily] | None = None,
         surveys: list[str] | None = None,
         pixels: int = 512,
+        visual_mode: VisualMode | str | None = None,
         cache: bool = False,
     ) -> SkyViewSearchResult:
         """Return generated public FITS URLs for bounded surveys around coordinates."""
 
+        resolved_visual_mode = coerce_visual_mode(visual_mode)
+        visual_mode_value = resolved_visual_mode.value
         specs = survey_specs_for_request(bands=bands, surveys=surveys)
         if not specs:
             return SkyViewSearchResult(
@@ -226,6 +230,7 @@ class SkyViewConnector:
                     "bands": [str(band) for band in bands or []],
                     "surveys": surveys or [],
                     "pixels": pixels,
+                    "visual_mode": visual_mode_value,
                 },
                 warnings=["No supported SkyView surveys matched the request."],
             )
@@ -236,6 +241,7 @@ class SkyViewConnector:
             "radius_deg": radius_deg,
             "surveys": [spec.survey for spec in specs],
             "pixels": pixels,
+            "visual_mode": visual_mode_value,
         }
         try:
             image_urls = await asyncio.wait_for(
@@ -300,6 +306,7 @@ class SkyViewConnector:
                         "dec_deg": dec_deg,
                         "radius_deg": radius_deg,
                         "pixels": pixels,
+                        "visual_mode": visual_mode_value,
                         "skyview_query_url": SKYVIEW_SOURCE_URL,
                     },
                 )

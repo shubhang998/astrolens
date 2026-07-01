@@ -46,6 +46,14 @@ class VisualAssetTier(StrEnum):
     UNKNOWN = "unknown"
 
 
+class VisualMode(StrEnum):
+    """Agent-facing field-of-view preset for generated visual evidence."""
+
+    DETAIL = "detail"
+    CONTEXT = "context"
+    WIDE = "wide"
+
+
 class TargetValidationStatus(StrEnum):
     """How confidently an image product matches the requested sky target."""
 

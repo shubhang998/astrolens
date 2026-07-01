@@ -139,7 +139,7 @@ Live SkyView input:
   "sources": ["skyview"],
   "bands": ["visible", "infrared", "xray", "radio"],
   "max_views": 4,
-  "pixels": 1024
+  "visual_mode": "context"
 }
 ```
 
@@ -179,7 +179,7 @@ Live SkyView input:
   "sources": ["skyview"],
   "bands": ["visible", "xray", "radio"],
   "max_views_per_band": 1,
-  "pixels": 1024
+  "visual_mode": "wide"
 }
 ```
 

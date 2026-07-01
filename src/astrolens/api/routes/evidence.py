@@ -2,12 +2,17 @@
 
 from fastapi import APIRouter, Query
 
-from astrolens.core.enums import BandFamily
+from astrolens.core.enums import BandFamily, VisualMode
 from astrolens.core.models import EvidenceBundle
 from astrolens.services.evidence import evidence_service
 from astrolens.services.live_sources import live_source_evidence_service
 
 router = APIRouter(tags=["evidence"])
+
+VISUAL_MODE_QUERY = Query(
+    default=VisualMode.CONTEXT,
+    description="Field-of-view preset for live visual evidence.",
+)
 
 
 def parse_bands(bands: str | None) -> list[BandFamily] | None:
@@ -35,18 +40,30 @@ async def get_evidence(
     bands: str | None = None,
     max_views: int = Query(default=6, ge=1, le=12),
     live: bool = False,
-    radius_deg: float = Query(default=0.03, gt=0.0, le=0.25),
+    visual_mode: VisualMode = VISUAL_MODE_QUERY,
+    radius_deg: float | None = Query(
+        default=None,
+        gt=0.0,
+        le=0.25,
+        description="Override the visual_mode radius preset when provided.",
+    ),
     missions: str | None = None,
     rank_mode: str = Query(default="best_visual"),
     sources: str | None = None,
     skyview_surveys: str | None = None,
-    pixels: int = Query(default=1024, ge=64, le=2048),
+    pixels: int | None = Query(
+        default=None,
+        ge=64,
+        le=2048,
+        description="Override the visual_mode SkyView pixel preset when provided.",
+    ),
 ) -> EvidenceBundle:
     if live:
         return await live_source_evidence_service.bundle_for_query(
             q,
             bands=parse_bands(bands),
             max_views=max_views,
+            visual_mode=visual_mode,
             radius_deg=radius_deg,
             missions=parse_missions(missions),
             rank_mode=rank_mode,

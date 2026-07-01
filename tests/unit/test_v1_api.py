@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 
 from astrolens.api.main import app
 from astrolens.api.routes import evidence as evidence_route
-from astrolens.core.enums import CacheStatus
+from astrolens.core.enums import CacheStatus, VisualMode
 from astrolens.core.models import CacheMeta, EvidenceBundle, ResponseMeta
 from astrolens.mcp import tools as mcp_tools
 from astrolens.services.repository import repository
@@ -137,15 +137,17 @@ def test_live_evidence_route_uses_live_service(monkeypatch) -> None:
         *,
         bands=None,
         max_views: int = 6,
-        radius_deg: float = 0.03,
+        visual_mode: VisualMode = VisualMode.CONTEXT,
+        radius_deg: float | None = None,
         missions=("HST", "JWST"),
         rank_mode: str = "best_visual",
         sources=("mast",),
         skyview_surveys=None,
-        pixels: int = 1024,
+        pixels: int | None = None,
     ) -> EvidenceBundle:
         seen["query"] = query
         seen["max_views"] = max_views
+        seen["visual_mode"] = visual_mode
         seen["radius_deg"] = radius_deg
         seen["missions"] = missions
         seen["rank_mode"] = rank_mode
@@ -162,7 +164,7 @@ def test_live_evidence_route_uses_live_service(monkeypatch) -> None:
 
     response = client.get(
         "/v1/evidence",
-        params={"q": "M87", "live": "true", "max_views": 2, "radius_deg": 0.02},
+        params={"q": "M87", "live": "true", "max_views": 2, "visual_mode": "wide"},
     )
 
     assert response.status_code == 200
@@ -170,12 +172,13 @@ def test_live_evidence_route_uses_live_service(monkeypatch) -> None:
     assert seen == {
         "query": "M87",
         "max_views": 2,
-        "radius_deg": 0.02,
+        "visual_mode": VisualMode.WIDE,
+        "radius_deg": None,
         "missions": ("HST", "JWST"),
         "rank_mode": "best_visual",
         "sources": ("mast",),
         "skyview_surveys": None,
-        "pixels": 1024,
+        "pixels": None,
     }
 
 
@@ -187,16 +190,18 @@ def test_mcp_get_object_evidence_supports_live_argument(monkeypatch) -> None:
         *,
         bands=None,
         max_views: int = 6,
-        radius_deg: float = 0.03,
+        visual_mode: VisualMode = VisualMode.CONTEXT,
+        radius_deg: float | None = None,
         missions=("HST", "JWST"),
         rank_mode: str = "best_visual",
         sources=("mast",),
         skyview_surveys=None,
-        pixels: int = 1024,
+        pixels: int | None = None,
     ) -> EvidenceBundle:
         seen["query"] = query
         seen["bands"] = bands
         seen["max_views"] = max_views
+        seen["visual_mode"] = visual_mode
         seen["radius_deg"] = radius_deg
         seen["missions"] = missions
         seen["rank_mode"] = rank_mode
@@ -224,6 +229,7 @@ def test_mcp_get_object_evidence_supports_live_argument(monkeypatch) -> None:
                     "bands": ["infrared"],
                     "max_views": 2,
                     "live": True,
+                    "visual_mode": "wide",
                     "radius_deg": 0.02,
                     "sources": ["skyview"],
                     "skyview_surveys": ["DSS2 Red"],
@@ -240,6 +246,7 @@ def test_mcp_get_object_evidence_supports_live_argument(monkeypatch) -> None:
     assert seen["query"] == "M87"
     assert seen["bands"] == ["infrared"]
     assert seen["max_views"] == 2
+    assert seen["visual_mode"] == VisualMode.WIDE
     assert seen["radius_deg"] == 0.02
     assert seen["missions"] == ("HST", "JWST")
     assert seen["rank_mode"] == "best_visual"

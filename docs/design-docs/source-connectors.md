@@ -154,6 +154,7 @@ Current implementation:
 - Query style: AstroLens resolves the object first, then sends numeric ICRS coordinates to SkyView.
 - Default surveys: SDSSg/r/i for visible RGB where available, 2MASS-K, GALEX Near UV, RASS-Cnt Broad, and VLA FIRST.
 - Fallback/custom surveys: DSS2 Blue/Red/IR and NVSS remain supported when users need wider coverage.
+- Visual modes: `detail`, `context`, and `wide` select bounded radius/pixel presets before SkyView is called; explicit radius/pixel inputs override the preset.
 - Product shape: HTTPS generated FITS URLs with survey name, band family, source record ID, and raw metadata.
 - Asset shape: AstroLens-rendered PNG previews or RGB composites from those FITS files, with rendering caveats.
 
