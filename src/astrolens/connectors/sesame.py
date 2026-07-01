@@ -2,11 +2,13 @@
 
 import asyncio
 from datetime import UTC, datetime
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
 from astrolens.connectors.base import ResolvedObjectCandidate
+from astrolens.connectors.error_mapping import connector_error_from_exception
 from astrolens.core.enums import ErrorCode, SourceHealthStatus
 from astrolens.core.errors import AstroLensError
 from astrolens.core.models import SourceHealth
@@ -47,14 +49,22 @@ class SesameConnector:
         try:
             with urlopen(request, timeout=self.timeout_seconds) as response:
                 body = response.read()
-        except Exception as exc:  # pragma: no cover - live network error branch
+        except (HTTPError, URLError, TimeoutError, OSError) as exc:
+            raise connector_error_from_exception(
+                exc,
+                source=self.name,
+                message=f"CDS Sesame live resolver failed for '{query}'.",
+                details={"query": query},
+            ) from exc
+        try:
+            return self.parse_response(body, query=query, source_url=url)
+        except ElementTree.ParseError as exc:
             raise AstroLensError(
                 ErrorCode.SOURCE_UNAVAILABLE,
-                f"CDS Sesame live resolver failed for '{query}'.",
+                "CDS Sesame returned malformed XML.",
                 retryable=True,
-                details={"source": self.name, "query": query},
+                details={"source": self.name, "query": query, "error_type": type(exc).__name__},
             ) from exc
-        return self.parse_response(body, query=query, source_url=url)
 
     def parse_response(
         self,

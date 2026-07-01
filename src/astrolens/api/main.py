@@ -121,7 +121,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             )
         )
         return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=_status_for_error(exc.code),
             content=error.model_dump(mode="json"),
         )
 
@@ -147,3 +147,27 @@ def register_exception_handlers(app: FastAPI) -> None:
 
 
 app = create_app()
+
+
+def _status_for_error(code: ErrorCode) -> int:
+    if code == ErrorCode.OBJECT_NOT_FOUND:
+        return status.HTTP_404_NOT_FOUND
+    if code == ErrorCode.OBJECT_AMBIGUOUS:
+        return status.HTTP_409_CONFLICT
+    if code == ErrorCode.PRODUCT_NOT_PUBLIC:
+        return status.HTTP_403_FORBIDDEN
+    if code == ErrorCode.RATE_LIMITED:
+        return status.HTTP_429_TOO_MANY_REQUESTS
+    if code == ErrorCode.SOURCE_TIMEOUT:
+        return status.HTTP_504_GATEWAY_TIMEOUT
+    if code == ErrorCode.SOURCE_UNAVAILABLE:
+        return status.HTTP_503_SERVICE_UNAVAILABLE
+    if code in {
+        ErrorCode.INVALID_COORDINATES,
+        ErrorCode.UNSUPPORTED_BAND,
+        ErrorCode.RENDER_NOT_SUPPORTED,
+        ErrorCode.PRODUCT_TOO_LARGE,
+        ErrorCode.UNSUPPORTED_CONNECTOR_OPERATION,
+    }:
+        return status.HTTP_422_UNPROCESSABLE_ENTITY
+    return status.HTTP_500_INTERNAL_SERVER_ERROR

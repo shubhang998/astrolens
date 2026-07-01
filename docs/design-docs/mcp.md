@@ -208,9 +208,16 @@ Return raw archive links for a view/product.
 
 - Default `search` limit: 10.
 - Default `get_object_evidence` max views: 6.
+- MCP list-producing tools must publish explicit input bounds and clamp oversized
+  caller input server-side.
 - Include thumbnail URLs by default, not huge raw links unless requested.
 - Include raw links as separate structured fields.
 - Truncate long raw source metadata unless debug/admin mode.
+- Default MCP responses use the `compact-v1` response profile:
+  - preserve stable source identifiers, filenames, filters, projects, survey
+    names, and source record references;
+  - omit bulky archive-only `raw_metadata` fields from `structuredContent`;
+  - expose response profile and schema version in MCP result metadata.
 
 ## Error handling
 
@@ -227,6 +234,8 @@ MCP tools should map service errors to structured tool errors where possible:
 - `UNSUPPORTED_BAND`
 
 Do not return Python stack traces or raw connector errors to the agent.
+For JSON-RPC, place the stable AstroLens code in `error.data.code`, include
+`retryable`, and keep source details compact.
 
 ## Security
 
@@ -252,6 +261,10 @@ MCP tests must cover:
 - response size constraints
 - citations present for facts/assets
 - prohibited tools are absent
+
+Production-hardening eval questions live in
+`docs/evals/mcp-production-hardening.md` and should be updated when MCP size,
+error, or schema contracts change.
 
 ## Done criteria
 

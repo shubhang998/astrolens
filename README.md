@@ -31,6 +31,7 @@ This repository now implements a fixture-backed AstroLens V1 slice:
 - `POST /v1/render`
 - `GET /v1/jobs/{job_id}`
 - JSON-RPC style `/mcp` endpoint with read-only tools
+- compact MCP response profile with bounded list inputs and structured source errors
 - `ArchiveConnector` protocol and normalized connector candidates
 - curated local seed evidence for 50 objects
 - multi-wavelength golden evidence for major objects including M87, Crab Nebula, Cassiopeia A, and Sagittarius A*
