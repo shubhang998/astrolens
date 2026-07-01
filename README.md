@@ -77,7 +77,7 @@ SkyView survey FITS cutouts, and renders those FITS files into AstroLens preview
 assets:
 
 ```text
-GET /v1/evidence?q=M87&live=true&sources=skyview&bands=visible,infrared,xray,radio&pixels=1024
+GET /v1/evidence?q=M87&live=true&sources=skyview&bands=visible,infrared,xray,radio&visual_mode=context
 ```
 
 For MCP/ChatGPT, call `get_object_evidence` or `compare_wavelengths` with:
@@ -88,9 +88,13 @@ For MCP/ChatGPT, call `get_object_evidence` or `compare_wavelengths` with:
   "live": true,
   "sources": ["skyview"],
   "bands": ["visible", "infrared", "xray", "radio"],
-  "pixels": 1024
+  "visual_mode": "context"
 }
 ```
+
+Live visual requests support `visual_mode=detail|context|wide`. The mode selects
+bounded radius and SkyView pixel presets; explicit `radius_deg` or `pixels`
+values override the preset. `context` preserves the previous default behavior.
 
 SkyView images are generated survey cutouts, not official press images. The
 default visible view uses SDSSg/r/i RGB compositing when available, with DSS

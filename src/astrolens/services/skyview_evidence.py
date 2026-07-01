@@ -17,6 +17,7 @@ from astrolens.core.enums import (
     ReuseStatus,
     TargetValidationStatus,
     VisualAssetTier,
+    VisualMode,
 )
 from astrolens.core.models import (
     Asset,
@@ -42,6 +43,7 @@ from astrolens.services.fits_renderer import (
 )
 from astrolens.services.live_ingestion import LiveIngestionService, live_ingestion_service
 from astrolens.services.repository import normalize_query
+from astrolens.services.visual_modes import coerce_visual_mode
 
 SKYVIEW_CITATION = Citation(
     id="citation:skyview:generated-fits",
@@ -89,11 +91,13 @@ class SkyViewEvidenceService:
         radius_deg: float = 0.03,
         surveys: list[str] | None = None,
         pixels: int = 512,
+        visual_mode: VisualMode | str | None = VisualMode.CONTEXT,
         size: str = "standard",
         stretch: str = "asinh",
     ) -> EvidenceBundle:
         """Resolve a target and return rendered SkyView survey views."""
 
+        resolved_visual_mode = coerce_visual_mode(visual_mode)
         bounded_pixels = max(64, min(int(pixels), 2048))
         live_object, _resolve_cache_status = await self.resolver.object_live(query)
         result = await self.skyview.search_generated_fits(
@@ -103,6 +107,7 @@ class SkyViewEvidenceService:
             bands=bands,
             surveys=surveys,
             pixels=bounded_pixels,
+            visual_mode=resolved_visual_mode,
         )
         object_slug = normalize_query(live_object.name) or "liveobject"
         candidate_views = self._views_for_products(
@@ -534,14 +539,16 @@ class SkyViewEvidenceService:
         radius_deg: float,
         surveys: list[str] | None,
         pixels: int,
+        visual_mode: VisualMode | str | None,
         size: str,
         stretch: str,
     ) -> str:
+        resolved_visual_mode = coerce_visual_mode(visual_mode)
         band_key = ",".join(sorted(str(band) for band in bands or []))
         survey_key = ",".join(sorted(normalize_query(survey) for survey in surveys or []))
         return (
             f"skyview:{normalize_query(query)}:{band_key}:{survey_key}:"
-            f"{max_views}:{radius_deg:.5f}:{pixels}:{size}:{stretch}"
+            f"{max_views}:{radius_deg:.5f}:{pixels}:{resolved_visual_mode.value}:{size}:{stretch}"
         )
 
 

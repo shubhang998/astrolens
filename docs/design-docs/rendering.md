@@ -12,6 +12,30 @@ Rendering converts supported astronomy products into usable preview/public asset
 - Do not support complex cubes/spectra/alignment pipelines in V1.
 - Never present AstroLens-rendered images as official NASA/ESA/CSA/STScI press images.
 
+## Visual mode presets
+
+Live generated visual evidence supports three bounded field-of-view modes:
+
+| Mode | MAST radius | SkyView radius | SkyView pixels | Intended use |
+|---|---:|---:|---:|---|
+| `detail` | 0.01 deg | 0.03 deg | 1024 | compact targets and close-up structure |
+| `context` | 0.03 deg | 0.08 deg | 1024 | balanced default; preserves earlier SkyView behavior |
+| `wide` | 0.08 deg | 0.20 deg | 1536 | extended objects and surrounding sky context |
+
+Explicit `radius_deg` and `pixels` request values override these presets. The
+mode should be preserved in request/product metadata so agents can explain the
+field-of-view choice without implying scientific completeness.
+
+## HiPS / Tiled Map Plan
+
+HiPS and tiled-map support is a later rendering capability, not part of the
+current FITS preview path. The next design slice should define a read-only tile
+plan response that includes survey identity, tile service provenance, reuse
+metadata, coordinate frame, field-of-view bounds, and citations. It should not
+fetch arbitrary tile URLs supplied by users, and it should not replace the
+current `detail`/`context`/`wide` presets until tests cover tile provenance and
+bounded source selection.
+
 ## Supported V1 outputs
 
 - thumbnail PNG/JPEG

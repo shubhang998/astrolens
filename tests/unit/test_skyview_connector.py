@@ -8,7 +8,13 @@ from astrolens.connectors.skyview import (
     SkyViewProductSummary,
     SkyViewSearchResult,
 )
-from astrolens.core.enums import BandFamily, CacheStatus, ErrorCode, SourceHealthStatus
+from astrolens.core.enums import (
+    BandFamily,
+    CacheStatus,
+    ErrorCode,
+    SourceHealthStatus,
+    VisualMode,
+)
 from astrolens.core.errors import AstroLensError
 from astrolens.services.fits_renderer import FitsRenderRequest, FitsRenderResult
 from astrolens.services.repository import repository
@@ -43,6 +49,7 @@ class FakeSkyViewEvidenceConnector:
     async def search_generated_fits(self, **kwargs: Any) -> SkyViewSearchResult:
         assert kwargs["ra_deg"] == pytest.approx(187.70593077)
         assert kwargs["pixels"] == 256
+        assert kwargs["visual_mode"] == VisualMode.CONTEXT
         return SkyViewSearchResult(
             request=kwargs,
             products=[
@@ -96,9 +103,11 @@ def test_skyview_connector_normalizes_generated_fits_products() -> None:
             radius_deg=0.03,
             bands=[BandFamily.VISIBLE, BandFamily.INFRARED],
             pixels=256,
+            visual_mode=VisualMode.WIDE,
         )
     )
 
+    assert result.request["visual_mode"] == "wide"
     assert [product.survey for product in result.products] == [
         "SDSSg",
         "SDSSr",
@@ -108,6 +117,7 @@ def test_skyview_connector_normalizes_generated_fits_products() -> None:
     assert result.products[0].download_url == "https://skyview.example.test/sdss-g.fits"
     assert result.products[0].source_record_id.startswith("skyview:sdssg:")
     assert result.products[0].raw_metadata["pixels"] == 256
+    assert result.products[0].raw_metadata["visual_mode"] == "wide"
     assert client.calls[0]["survey"] == ["SDSSg", "SDSSr", "SDSSi", "2MASS-K"]
     assert client.calls[0]["pixels"] == 256
 

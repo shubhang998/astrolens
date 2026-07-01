@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from astrolens.core.enums import BandFamily, ErrorCode
+from astrolens.core.enums import BandFamily, ErrorCode, VisualMode
 from astrolens.core.errors import AstroLensError
 from astrolens.mcp.gallery_component import GALLERY_URI
 from astrolens.mcp.hardening import (
@@ -76,6 +76,22 @@ def _sources(value: Any) -> tuple[str, ...]:
     else:
         sources = [str(item).strip().lower() for item in value if str(item).strip()]
     return tuple(sources or ["mast"])
+
+
+def _visual_mode(value: Any) -> VisualMode:
+    if value is None:
+        return VisualMode.CONTEXT
+    return VisualMode(str(value).strip().lower())
+
+
+def _optional_float(arguments: dict[str, Any], key: str) -> float | None:
+    value = arguments.get(key)
+    return None if value is None else float(value)
+
+
+def _optional_int(arguments: dict[str, Any], key: str) -> int | None:
+    value = arguments.get(key)
+    return None if value is None else int(value)
 
 
 def _skyview_surveys(value: Any) -> list[str] | None:
@@ -215,7 +231,15 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "maximum": MCP_OBSERVATION_LIMIT,
                 },
                 "live": {"type": "boolean", "default": False},
-                "radius_deg": {"type": "number", "default": 0.03},
+                "visual_mode": {
+                    "type": "string",
+                    "enum": ["detail", "context", "wide"],
+                    "default": "context",
+                },
+                "radius_deg": {
+                    "type": "number",
+                    "description": "Override the visual_mode radius preset.",
+                },
                 "rank_mode": {
                     "type": "string",
                     "enum": ["best_visual", "latest", "science_ready", "balanced"],
@@ -232,7 +256,12 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "default": ["mast"],
                 },
                 "skyview_surveys": {"type": "array", "items": {"type": "string"}},
-                "pixels": {"type": "integer", "default": 1024, "minimum": 64, "maximum": 2048},
+                "pixels": {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 2048,
+                    "description": "Override the visual_mode SkyView pixel preset.",
+                },
             },
             "required": ["object"],
         },
@@ -257,7 +286,15 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "maximum": MCP_MAX_VIEWS,
                 },
                 "live": {"type": "boolean", "default": False},
-                "radius_deg": {"type": "number", "default": 0.03},
+                "visual_mode": {
+                    "type": "string",
+                    "enum": ["detail", "context", "wide"],
+                    "default": "context",
+                },
+                "radius_deg": {
+                    "type": "number",
+                    "description": "Override the visual_mode radius preset.",
+                },
                 "rank_mode": {
                     "type": "string",
                     "enum": ["best_visual", "latest", "science_ready", "balanced"],
@@ -274,7 +311,12 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "default": ["mast"],
                 },
                 "skyview_surveys": {"type": "array", "items": {"type": "string"}},
-                "pixels": {"type": "integer", "default": 1024, "minimum": 64, "maximum": 2048},
+                "pixels": {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 2048,
+                    "description": "Override the visual_mode SkyView pixel preset.",
+                },
             },
             "required": ["object"],
         },
@@ -298,7 +340,15 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "maximum": MCP_MAX_VIEWS,
                 },
                 "live": {"type": "boolean", "default": False},
-                "radius_deg": {"type": "number", "default": 0.03},
+                "visual_mode": {
+                    "type": "string",
+                    "enum": ["detail", "context", "wide"],
+                    "default": "context",
+                },
+                "radius_deg": {
+                    "type": "number",
+                    "description": "Override the visual_mode radius preset.",
+                },
                 "rank_mode": {
                     "type": "string",
                     "enum": ["best_visual", "latest", "science_ready", "balanced"],
@@ -315,7 +365,12 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "default": ["mast"],
                 },
                 "skyview_surveys": {"type": "array", "items": {"type": "string"}},
-                "pixels": {"type": "integer", "default": 1024, "minimum": 64, "maximum": 2048},
+                "pixels": {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 2048,
+                    "description": "Override the visual_mode SkyView pixel preset.",
+                },
             },
             "required": ["object"],
         },
@@ -340,7 +395,15 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "maximum": MCP_MAX_COMPARE_VIEWS_PER_BAND,
                 },
                 "live": {"type": "boolean", "default": False},
-                "radius_deg": {"type": "number", "default": 0.03},
+                "visual_mode": {
+                    "type": "string",
+                    "enum": ["detail", "context", "wide"],
+                    "default": "context",
+                },
+                "radius_deg": {
+                    "type": "number",
+                    "description": "Override the visual_mode radius preset.",
+                },
                 "rank_mode": {
                     "type": "string",
                     "enum": ["best_visual", "latest", "science_ready", "balanced"],
@@ -357,7 +420,12 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "default": ["mast"],
                 },
                 "skyview_surveys": {"type": "array", "items": {"type": "string"}},
-                "pixels": {"type": "integer", "default": 1024, "minimum": 64, "maximum": 2048},
+                "pixels": {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 2048,
+                    "description": "Override the visual_mode SkyView pixel preset.",
+                },
             },
             "required": ["object", "bands"],
         },
@@ -406,7 +474,15 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "object": {"type": "string"},
                 "bands": {"type": "array", "items": {"type": "string"}},
                 "live": {"type": "boolean", "default": True},
-                "radius_deg": {"type": "number", "default": 0.03},
+                "visual_mode": {
+                    "type": "string",
+                    "enum": ["detail", "context", "wide"],
+                    "default": "context",
+                },
+                "radius_deg": {
+                    "type": "number",
+                    "description": "Override the visual_mode radius preset.",
+                },
                 "rank_mode": {
                     "type": "string",
                     "enum": ["best_visual", "latest", "science_ready", "balanced"],
@@ -423,7 +499,12 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "default": ["mast"],
                 },
                 "skyview_surveys": {"type": "array", "items": {"type": "string"}},
-                "pixels": {"type": "integer", "default": 1024, "minimum": 64, "maximum": 2048},
+                "pixels": {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 2048,
+                    "description": "Override the visual_mode SkyView pixel preset.",
+                },
             },
             "required": ["object"],
         },
@@ -443,7 +524,15 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "object": {"type": "string"},
                 "bands": {"type": "array", "items": {"type": "string"}},
                 "live": {"type": "boolean", "default": True},
-                "radius_deg": {"type": "number", "default": 0.03},
+                "visual_mode": {
+                    "type": "string",
+                    "enum": ["detail", "context", "wide"],
+                    "default": "context",
+                },
+                "radius_deg": {
+                    "type": "number",
+                    "description": "Override the visual_mode radius preset.",
+                },
                 "missions": {
                     "type": "array",
                     "items": {"type": "string", "enum": ["HST", "JWST"]},
@@ -455,7 +544,12 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "default": ["mast"],
                 },
                 "skyview_surveys": {"type": "array", "items": {"type": "string"}},
-                "pixels": {"type": "integer", "default": 1024, "minimum": 64, "maximum": 2048},
+                "pixels": {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 2048,
+                    "description": "Override the visual_mode SkyView pixel preset.",
+                },
                 "size": {
                     "type": "string",
                     "enum": ["thumbnail", "standard", "square"],
@@ -488,7 +582,15 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "maximum": MCP_MAX_VIEWS,
                 },
                 "live": {"type": "boolean", "default": True},
-                "radius_deg": {"type": "number", "default": 0.03},
+                "visual_mode": {
+                    "type": "string",
+                    "enum": ["detail", "context", "wide"],
+                    "default": "context",
+                },
+                "radius_deg": {
+                    "type": "number",
+                    "description": "Override the visual_mode radius preset.",
+                },
                 "missions": {
                     "type": "array",
                     "items": {"type": "string", "enum": ["HST", "JWST"]},
@@ -500,7 +602,12 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "default": ["mast"],
                 },
                 "skyview_surveys": {"type": "array", "items": {"type": "string"}},
-                "pixels": {"type": "integer", "default": 1024, "minimum": 64, "maximum": 2048},
+                "pixels": {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 2048,
+                    "description": "Override the visual_mode SkyView pixel preset.",
+                },
             },
             "required": ["object"],
         },
@@ -542,12 +649,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
                 str(arguments["object"]),
                 bands=_bands(arguments.get("bands")),
                 max_views=_observation_limit(arguments),
-                radius_deg=float(arguments.get("radius_deg", 0.03)),
+                visual_mode=_visual_mode(arguments.get("visual_mode")),
+                radius_deg=_optional_float(arguments, "radius_deg"),
                 missions=_missions(arguments.get("missions")),
                 rank_mode=str(arguments.get("rank_mode", "best_visual")),
                 sources=_sources(arguments.get("sources")),
                 skyview_surveys=_skyview_surveys(arguments.get("skyview_surveys")),
-                pixels=_pixels(arguments),
+                pixels=_optional_int(arguments, "pixels"),
             )
             return {
                 "object": bundle.object.model_dump(mode="json"),
@@ -573,12 +681,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
                     str(arguments["object"]),
                     bands=_bands(arguments.get("bands")),
                     max_views=_max_views(arguments),
-                    radius_deg=float(arguments.get("radius_deg", 0.03)),
+                    visual_mode=_visual_mode(arguments.get("visual_mode")),
+                    radius_deg=_optional_float(arguments, "radius_deg"),
                     missions=_missions(arguments.get("missions")),
                     rank_mode=str(arguments.get("rank_mode", "best_visual")),
                     sources=_sources(arguments.get("sources")),
                     skyview_surveys=_skyview_surveys(arguments.get("skyview_surveys")),
-                    pixels=_pixels(arguments),
+                    pixels=_optional_int(arguments, "pixels"),
                 )
             ).model_dump(mode="json")
         return evidence_service.bundle_for_query(
@@ -592,12 +701,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
                 str(arguments["object"]),
                 bands=_bands(arguments.get("bands")),
                 max_views=_max_views(arguments),
-                radius_deg=float(arguments.get("radius_deg", 0.03)),
+                visual_mode=_visual_mode(arguments.get("visual_mode")),
+                radius_deg=_optional_float(arguments, "radius_deg"),
                 missions=_missions(arguments.get("missions")),
                 rank_mode=str(arguments.get("rank_mode", "best_visual")),
                 sources=_sources(arguments.get("sources")),
                 skyview_surveys=_skyview_surveys(arguments.get("skyview_surveys")),
-                pixels=_pixels(arguments),
+                pixels=_optional_int(arguments, "pixels"),
             )
             return {
                 "object_id": bundle.object.id,
@@ -724,12 +834,13 @@ async def _compare_live_wavelengths(arguments: dict[str, Any]) -> dict[str, Any]
         str(arguments["object"]),
         bands=bands or None,
         max_views=max(1, len(bands) * max_views_per_band),
-        radius_deg=float(arguments.get("radius_deg", 0.03)),
+        visual_mode=_visual_mode(arguments.get("visual_mode")),
+        radius_deg=_optional_float(arguments, "radius_deg"),
         missions=_missions(arguments.get("missions")),
         rank_mode=str(arguments.get("rank_mode", "best_visual")),
         sources=_sources(arguments.get("sources")),
         skyview_surveys=_skyview_surveys(arguments.get("skyview_surveys")),
-        pixels=_pixels(arguments),
+        pixels=_optional_int(arguments, "pixels"),
     )
     comparison: list[dict[str, Any]] = []
     for band in bands:
@@ -783,12 +894,13 @@ async def _bundle_for_visual_tool(
             str(arguments["object"]),
             bands=_bands(arguments.get("bands")),
             max_views=max_views,
-            radius_deg=float(arguments.get("radius_deg", 0.03)),
+            visual_mode=_visual_mode(arguments.get("visual_mode")),
+            radius_deg=_optional_float(arguments, "radius_deg"),
             missions=_missions(arguments.get("missions")),
             rank_mode=str(arguments.get("rank_mode", "best_visual")),
             sources=_sources(arguments.get("sources")),
             skyview_surveys=_skyview_surveys(arguments.get("skyview_surveys")),
-            pixels=_pixels(arguments),
+            pixels=_optional_int(arguments, "pixels"),
         )
     return evidence_service.bundle_for_query(
         str(arguments["object"]),
