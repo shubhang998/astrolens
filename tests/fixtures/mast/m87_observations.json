@@ -1,0 +1,42 @@
+{
+  "status": "COMPLETE",
+  "data": [
+    {
+      "obsid": 217609111,
+      "obs_id": "jw03055007001_04101_00004_nrcb2",
+      "obs_collection": "JWST",
+      "instrument_name": "NIRCAM/IMAGE",
+      "filters": "F150W",
+      "target_name": "MESSIER-087",
+      "dataproduct_type": "image",
+      "dataRights": "PUBLIC",
+      "t_exptime": 515.0,
+      "t_min": 59945.128,
+      "wave_region": "INFRARED",
+      "em_min": 0.0000013,
+      "em_max": 0.0000017,
+      "calib_level": 3,
+      "s_ra": 187.70593077,
+      "s_dec": 12.39112325,
+      "distance": 0.0
+    },
+    {
+      "obsid": 250359823,
+      "obs_id": "jw01246001001_02101_00001_nrca1",
+      "obs_collection": "JWST",
+      "instrument_name": "NIRCAM/IMAGE",
+      "filters": "F115W;F277W",
+      "target_name": "NGC4486",
+      "dataproduct_type": "image",
+      "dataRights": "PUBLIC",
+      "t_exptime": 300.0,
+      "wave_region": "INFRARED",
+      "em_min": 0.0000010,
+      "em_max": 0.0000029,
+      "calib_level": 3,
+      "s_ra": 187.706,
+      "s_dec": 12.391,
+      "distance": 0.0002
+    }
+  ]
+}

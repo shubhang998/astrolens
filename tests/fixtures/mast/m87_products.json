@@ -1,0 +1,32 @@
+{
+  "status": "COMPLETE",
+  "data": [
+    {
+      "productFilename": "jw03055007001_04101_00004_nrcb2_uncal.jpg",
+      "productType": "PREVIEW",
+      "dataproduct_type": "image",
+      "calib_level": 1,
+      "size": 12345,
+      "dataURI": "mast:JWST/product/jw03055007001_04101_00004_nrcb2_uncal.jpg",
+      "description": "Uncalibrated preview"
+    },
+    {
+      "productFilename": "jw03055007001_04101_00004_nrcb2_i2d.jpg",
+      "productType": "PREVIEW",
+      "dataproduct_type": "image",
+      "calib_level": 2,
+      "size": 45678,
+      "dataURI": "mast:JWST/product/jw03055007001_04101_00004_nrcb2_i2d.jpg",
+      "description": "Calibrated preview"
+    },
+    {
+      "productFilename": "jw03055007001_04101_00004_nrcb2_i2d.fits",
+      "productType": "SCIENCE",
+      "dataproduct_type": "image",
+      "calib_level": 3,
+      "size": 987654321,
+      "dataURI": "mast:JWST/product/jw03055007001_04101_00004_nrcb2_i2d.fits",
+      "description": "Drizzled science image"
+    }
+  ]
+}

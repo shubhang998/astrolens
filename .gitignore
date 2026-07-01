@@ -1,0 +1,13 @@
+.venv/
+.uv-cache/
+.pytest_cache/
+.ruff_cache/
+.astrolens-cache/
+__pycache__/
+*.py[cod]
+.coverage
+htmlcov/
+.DS_Store
+dist/
+build/
+*.egg-info/

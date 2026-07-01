@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Sesame>
+  <Target>
+    <name>M87</name>
+    <Resolver name="Sc=Simbad (CDS, via client/server)">
+      <oid>1937204</oid>
+      <otype>AGN</otype>
+      <jpos>12:30:49.42 +12:23:28.0</jpos>
+      <jradeg>187.70593077</jradeg>
+      <jdedeg>12.39112325</jdedeg>
+      <refPos>2020A&amp;A...644A.159C</refPos>
+      <z>
+        <v>0.00420</v>
+        <r>2009ApJS..182..543A</r>
+      </z>
+      <oname>M  87</oname>
+      <nrefs>7887</nrefs>
+    </Resolver>
+  </Target>
+</Sesame>
