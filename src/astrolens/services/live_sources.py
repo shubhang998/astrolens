@@ -6,8 +6,9 @@ import asyncio
 from uuid import uuid4
 
 from astrolens.core.enums import BandFamily, CacheStatus
-from astrolens.core.models import CacheMeta, EvidenceBundle, ResponseMeta
+from astrolens.core.models import CacheMeta, CrossWavelengthNote, EvidenceBundle, ResponseMeta, View
 from astrolens.services.live_evidence import LiveEvidenceService, live_evidence_service
+from astrolens.services.ranking import rank_views_by_source_quality
 from astrolens.services.skyview_evidence import SkyViewEvidenceService, skyview_evidence_service
 
 LIVE_SOURCES = {"mast", "skyview"}
@@ -78,17 +79,20 @@ class LiveSourceEvidenceService:
             pixels=pixels,
         )
         mast_bundle, skyview_bundle = await asyncio.gather(mast_task, skyview_task)
-        views = [*mast_bundle.views, *skyview_bundle.views][:max_views]
-        all_notes = [
-            *mast_bundle.cross_wavelength_notes,
-            *skyview_bundle.cross_wavelength_notes,
-        ]
-        notes_by_band = {note.band_family: note for note in all_notes}
+        views = rank_views_by_source_quality(
+            [*mast_bundle.views, *skyview_bundle.views],
+            bands=bands,
+            max_views=max_views,
+        )
+        notes = _notes_for_selected_views(
+            [*mast_bundle.cross_wavelength_notes, *skyview_bundle.cross_wavelength_notes],
+            views,
+        )
         warnings = [*mast_bundle.warnings, *skyview_bundle.warnings]
         return EvidenceBundle(
             object=mast_bundle.object,
             views=views,
-            cross_wavelength_notes=list(notes_by_band.values()),
+            cross_wavelength_notes=notes,
             warnings=warnings,
             meta=ResponseMeta(
                 request_id=f"req_{uuid4().hex}",
@@ -98,6 +102,20 @@ class LiveSourceEvidenceService:
                 ),
             ),
         )
+
+
+def _notes_for_selected_views(
+    notes: list[CrossWavelengthNote],
+    views: list[View],
+) -> list[CrossWavelengthNote]:
+    """Keep one cross-wavelength note per band that actually survived ranking."""
+
+    shown_bands = {view.band_family for view in views}
+    by_band: dict[BandFamily, CrossWavelengthNote] = {}
+    for note in notes:
+        if note.band_family in shown_bands and note.band_family not in by_band:
+            by_band[note.band_family] = note
+    return list(by_band.values())
 
 
 def normalize_live_sources(sources: tuple[str, ...] | list[str] | str | None) -> tuple[str, ...]:

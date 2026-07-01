@@ -159,6 +159,34 @@ Debug behavior:
 - expose candidate rejection reasons
 - expose source health/cache information
 
+## Cross-source visual-source-quality ranking
+
+When a live evidence request fans out to more than one source (currently MAST +
+SkyView), the resulting views must be merged into a single list that decides
+*which images should be used*. This is handled by
+`rank_views_by_source_quality` in `services/ranking.py` and applied in
+`services/live_sources.py` before truncation.
+
+It ranks each candidate `View` by a deterministic visual-source-quality ladder
+(best first), derived from the asset's `visual_tier` and shape:
+
+1. `outreach_release` — public outreach/press images.
+2. `processed_archive` — HLA/HLSP/HAP color composites and calibrated archive products.
+3. rendered **composite** — SDSS RGB / multi-band `astrolens_rendered` assets
+   (assets built from two or more aligned source products). These outrank raw
+   archive previews.
+4. `raw_archive_preview` — convenience MAST previews.
+5. rendered **single-survey** — one-band `astrolens_rendered` SkyView cutouts,
+   the fallback tier used only when better visuals are unavailable.
+6. views with no usable asset rank last.
+
+The ladder bands dominate. Bounded in-band refinements (target-validation status,
+`preview_quality`, and `overall`) only reorder views *inside* a band, and a mild
+tie-break prefers MAST over SkyView, then a stable label. Selection is
+wavelength-diversity-first: the single best view always leads, then remaining
+slots prefer the best not-yet-seen band before filling with the next best.
+Ranking reads each view's provenance/tier metadata and never mutates it.
+
 ## Human-curated seed set
 
 Start with 50–100 famous objects and manually approve best views. Use these as:
