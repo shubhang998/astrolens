@@ -130,6 +130,19 @@ Input:
 }
 ```
 
+Live SkyView input:
+
+```json
+{
+  "object": "M87",
+  "live": true,
+  "sources": ["skyview"],
+  "bands": ["visible", "infrared", "xray", "radio"],
+  "max_views": 4,
+  "pixels": 1024
+}
+```
+
 ### get_best_views
 
 Return ranked views only.
@@ -154,6 +167,19 @@ Input:
 {
   "object": "M87",
   "bands": ["visible", "xray", "radio"]
+}
+```
+
+Live SkyView input:
+
+```json
+{
+  "object": "M87",
+  "live": true,
+  "sources": ["skyview"],
+  "bands": ["visible", "xray", "radio"],
+  "max_views_per_band": 1,
+  "pixels": 1024
 }
 ```
 

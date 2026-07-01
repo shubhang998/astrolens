@@ -17,6 +17,7 @@ from astrolens.core.enums import (
 )
 
 PublicUrl = Annotated[str, Field(pattern=r"^https?://")]
+AssetUrl = Annotated[str, Field(pattern=r"^(https?://|/)")]
 
 
 class AstroLensModel(BaseModel):
@@ -159,8 +160,8 @@ class Asset(AstroLensModel):
     visual_tier: VisualAssetTier = VisualAssetTier.UNKNOWN
     width: int | None = Field(default=None, gt=0)
     height: int | None = Field(default=None, gt=0)
-    asset_url: PublicUrl | None = None
-    thumbnail_url: PublicUrl | None = None
+    asset_url: AssetUrl | None = None
+    thumbnail_url: AssetUrl | None = None
     false_color: bool | None = None
     processing_note: str | None = None
     selection_reason: str | None = None

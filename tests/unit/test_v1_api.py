@@ -140,16 +140,22 @@ def test_live_evidence_route_uses_live_service(monkeypatch) -> None:
         radius_deg: float = 0.03,
         missions=("HST", "JWST"),
         rank_mode: str = "best_visual",
+        sources=("mast",),
+        skyview_surveys=None,
+        pixels: int = 1024,
     ) -> EvidenceBundle:
         seen["query"] = query
         seen["max_views"] = max_views
         seen["radius_deg"] = radius_deg
         seen["missions"] = missions
         seen["rank_mode"] = rank_mode
+        seen["sources"] = sources
+        seen["skyview_surveys"] = skyview_surveys
+        seen["pixels"] = pixels
         return _fake_live_bundle()
 
     monkeypatch.setattr(
-        evidence_route.live_evidence_service,
+        evidence_route.live_source_evidence_service,
         "bundle_for_query",
         fake_bundle_for_query,
     )
@@ -167,6 +173,9 @@ def test_live_evidence_route_uses_live_service(monkeypatch) -> None:
         "radius_deg": 0.02,
         "missions": ("HST", "JWST"),
         "rank_mode": "best_visual",
+        "sources": ("mast",),
+        "skyview_surveys": None,
+        "pixels": 1024,
     }
 
 
@@ -181,6 +190,9 @@ def test_mcp_get_object_evidence_supports_live_argument(monkeypatch) -> None:
         radius_deg: float = 0.03,
         missions=("HST", "JWST"),
         rank_mode: str = "best_visual",
+        sources=("mast",),
+        skyview_surveys=None,
+        pixels: int = 1024,
     ) -> EvidenceBundle:
         seen["query"] = query
         seen["bands"] = bands
@@ -188,10 +200,13 @@ def test_mcp_get_object_evidence_supports_live_argument(monkeypatch) -> None:
         seen["radius_deg"] = radius_deg
         seen["missions"] = missions
         seen["rank_mode"] = rank_mode
+        seen["sources"] = sources
+        seen["skyview_surveys"] = skyview_surveys
+        seen["pixels"] = pixels
         return _fake_live_bundle()
 
     monkeypatch.setattr(
-        mcp_tools.live_evidence_service,
+        mcp_tools.live_source_evidence_service,
         "bundle_for_query",
         fake_bundle_for_query,
     )
@@ -210,6 +225,9 @@ def test_mcp_get_object_evidence_supports_live_argument(monkeypatch) -> None:
                     "max_views": 2,
                     "live": True,
                     "radius_deg": 0.02,
+                    "sources": ["skyview"],
+                    "skyview_surveys": ["DSS2 Red"],
+                    "pixels": 256,
                 },
             },
         },
@@ -225,6 +243,9 @@ def test_mcp_get_object_evidence_supports_live_argument(monkeypatch) -> None:
     assert seen["radius_deg"] == 0.02
     assert seen["missions"] == ("HST", "JWST")
     assert seen["rank_mode"] == "best_visual"
+    assert seen["sources"] == ("skyview",)
+    assert seen["skyview_surveys"] == ["DSS2 Red"]
+    assert seen["pixels"] == 256
 
 
 def test_mcp_exposes_gallery_resource_for_chatgpt_apps() -> None:

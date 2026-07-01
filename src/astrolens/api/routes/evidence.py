@@ -5,7 +5,7 @@ from fastapi import APIRouter, Query
 from astrolens.core.enums import BandFamily
 from astrolens.core.models import EvidenceBundle
 from astrolens.services.evidence import evidence_service
-from astrolens.services.live_evidence import live_evidence_service
+from astrolens.services.live_sources import live_source_evidence_service
 
 router = APIRouter(tags=["evidence"])
 
@@ -23,6 +23,12 @@ def parse_missions(missions: str | None) -> tuple[str, ...]:
     return parsed or ("HST", "JWST")
 
 
+def parse_csv(value: str | None) -> list[str] | None:
+    if not value:
+        return None
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 @router.get("/evidence", response_model=EvidenceBundle)
 async def get_evidence(
     q: str = Query(min_length=1),
@@ -32,15 +38,21 @@ async def get_evidence(
     radius_deg: float = Query(default=0.03, gt=0.0, le=0.25),
     missions: str | None = None,
     rank_mode: str = Query(default="best_visual"),
+    sources: str | None = None,
+    skyview_surveys: str | None = None,
+    pixels: int = Query(default=1024, ge=64, le=2048),
 ) -> EvidenceBundle:
     if live:
-        return await live_evidence_service.bundle_for_query(
+        return await live_source_evidence_service.bundle_for_query(
             q,
             bands=parse_bands(bands),
             max_views=max_views,
             radius_deg=radius_deg,
             missions=parse_missions(missions),
             rank_mode=rank_mode,
+            sources=tuple(parse_csv(sources) or ["mast"]),
+            skyview_surveys=parse_csv(skyview_surveys),
+            pixels=pixels,
         )
     return evidence_service.bundle_for_query(q, bands=parse_bands(bands), max_views=max_views)
 

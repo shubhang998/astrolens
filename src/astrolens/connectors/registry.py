@@ -3,6 +3,7 @@
 from datetime import UTC, datetime
 
 from astrolens.connectors.base import ArchiveConnector
+from astrolens.connectors.skyview import skyview_connector
 from astrolens.core.enums import SourceHealthStatus
 from astrolens.core.models import SourceHealth
 
@@ -28,7 +29,7 @@ CONNECTORS: list[ArchiveConnector] = [
     SeedConnector("NED"),
     SeedConnector("MAST"),
     SeedConnector("IRSA"),
-    SeedConnector("SkyView"),
+    skyview_connector,
     SeedConnector("HEASARC"),
     SeedConnector("Chandra"),
     SeedConnector("ADS"),

@@ -148,6 +148,17 @@ Use for infrared and all-sky survey data. Normalize survey names and band famili
 
 Use for fast generated image views when direct archive products are too heavy or unavailable. Mark SkyView assets as generated from survey data, not as official press images.
 
+Current implementation:
+
+- Dependency: optional `astrolens[skyview]`, backed by `astroquery.skyview`.
+- Query style: AstroLens resolves the object first, then sends numeric ICRS coordinates to SkyView.
+- Default surveys: SDSSg/r/i for visible RGB where available, 2MASS-K, GALEX Near UV, RASS-Cnt Broad, and VLA FIRST.
+- Fallback/custom surveys: DSS2 Blue/Red/IR and NVSS remain supported when users need wider coverage.
+- Product shape: HTTPS generated FITS URLs with survey name, band family, source record ID, and raw metadata.
+- Asset shape: AstroLens-rendered PNG previews or RGB composites from those FITS files, with rendering caveats.
+
+Do not let users pass arbitrary FITS URLs through this connector. The connector should only use bounded survey names and generated URLs returned by SkyView.
+
 ### HEASARC / Chandra
 
 Use for X-ray/high-energy evidence. X-ray views need strong caveats: false color, energy bands, resolution differences, and non-simultaneity.

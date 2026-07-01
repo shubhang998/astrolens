@@ -11,8 +11,8 @@ from astrolens.services.fits_renderer import (
     FitsRenderRequest,
     SourceFitsProduct,
 )
-from astrolens.services.live_evidence import live_evidence_service
 from astrolens.services.live_ingestion import live_ingestion_service
+from astrolens.services.live_sources import live_source_evidence_service
 from astrolens.services.ranking import rank_views
 from astrolens.services.repository import repository
 from astrolens.services.resolver import resolver_service
@@ -47,6 +47,26 @@ def _missions(value: Any) -> tuple[str, ...]:
     else:
         missions = [str(item).strip().upper() for item in value if str(item).strip()]
     return tuple(missions or ["HST", "JWST"])
+
+
+def _sources(value: Any) -> tuple[str, ...]:
+    if value is None:
+        return ("mast",)
+    if isinstance(value, str):
+        sources = [item.strip().lower() for item in value.split(",") if item.strip()]
+    else:
+        sources = [str(item).strip().lower() for item in value if str(item).strip()]
+    return tuple(sources or ["mast"])
+
+
+def _skyview_surveys(value: Any) -> list[str] | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        surveys = [item.strip() for item in value.split(",") if item.strip()]
+    else:
+        surveys = [str(item).strip() for item in value if str(item).strip()]
+    return surveys or None
 
 
 def _object_id(value: str) -> str:
@@ -116,7 +136,8 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "search_observations",
         "description": (
-            "Return observations for an object. Use live=true for live MAST HST/JWST rows."
+            "Return observations for an object. Use live=true for live MAST rows, "
+            "or sources=['skyview'] for generated multi-wavelength survey cutouts."
         ),
         "inputSchema": {
             "type": "object",
@@ -136,6 +157,13 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "items": {"type": "string", "enum": ["HST", "JWST"]},
                     "default": ["HST", "JWST"],
                 },
+                "sources": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["mast", "skyview"]},
+                    "default": ["mast"],
+                },
+                "skyview_surveys": {"type": "array", "items": {"type": "string"}},
+                "pixels": {"type": "integer", "default": 1024, "minimum": 64, "maximum": 2048},
             },
             "required": ["object"],
         },
@@ -145,7 +173,8 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "get_object_evidence",
         "description": (
-            "Return an AstroLens EvidenceBundle. Use live=true for live MAST HST/JWST evidence."
+            "Return an AstroLens EvidenceBundle. Use live=true for live source evidence; "
+            "sources=['skyview'] returns rendered SkyView survey cutouts."
         ),
         "inputSchema": {
             "type": "object",
@@ -165,6 +194,13 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "items": {"type": "string", "enum": ["HST", "JWST"]},
                     "default": ["HST", "JWST"],
                 },
+                "sources": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["mast", "skyview"]},
+                    "default": ["mast"],
+                },
+                "skyview_surveys": {"type": "array", "items": {"type": "string"}},
+                "pixels": {"type": "integer", "default": 1024, "minimum": 64, "maximum": 2048},
             },
             "required": ["object"],
         },
@@ -174,7 +210,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "get_best_views",
         "description": (
-            "Return ranked AstroLens views. Use live=true for live MAST HST/JWST views."
+            "Return ranked AstroLens views. Use live=true for live MAST or SkyView views."
         ),
         "inputSchema": {
             "type": "object",
@@ -194,6 +230,13 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "items": {"type": "string", "enum": ["HST", "JWST"]},
                     "default": ["HST", "JWST"],
                 },
+                "sources": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["mast", "skyview"]},
+                    "default": ["mast"],
+                },
+                "skyview_surveys": {"type": "array", "items": {"type": "string"}},
+                "pixels": {"type": "integer", "default": 1024, "minimum": 64, "maximum": 2048},
             },
             "required": ["object"],
         },
@@ -203,7 +246,8 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "compare_wavelengths",
         "description": (
-            "Compare selected wavelength bands for an object. Use live=true for live MAST views."
+            "Compare selected wavelength bands for an object. Use live=true and "
+            "sources=['skyview'] for generated survey cutout comparisons."
         ),
         "inputSchema": {
             "type": "object",
@@ -223,6 +267,13 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "items": {"type": "string", "enum": ["HST", "JWST"]},
                     "default": ["HST", "JWST"],
                 },
+                "sources": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["mast", "skyview"]},
+                    "default": ["mast"],
+                },
+                "skyview_surveys": {"type": "array", "items": {"type": "string"}},
+                "pixels": {"type": "integer", "default": 1024, "minimum": 64, "maximum": 2048},
             },
             "required": ["object", "bands"],
         },
@@ -282,6 +333,13 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "items": {"type": "string", "enum": ["HST", "JWST"]},
                     "default": ["HST", "JWST"],
                 },
+                "sources": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["mast", "skyview"]},
+                    "default": ["mast"],
+                },
+                "skyview_surveys": {"type": "array", "items": {"type": "string"}},
+                "pixels": {"type": "integer", "default": 1024, "minimum": 64, "maximum": 2048},
             },
             "required": ["object"],
         },
@@ -307,6 +365,13 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "items": {"type": "string", "enum": ["HST", "JWST"]},
                     "default": ["HST", "JWST"],
                 },
+                "sources": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["mast", "skyview"]},
+                    "default": ["mast"],
+                },
+                "skyview_surveys": {"type": "array", "items": {"type": "string"}},
+                "pixels": {"type": "integer", "default": 1024, "minimum": 64, "maximum": 2048},
                 "size": {
                     "type": "string",
                     "enum": ["thumbnail", "standard", "square"],
@@ -340,6 +405,13 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "items": {"type": "string", "enum": ["HST", "JWST"]},
                     "default": ["HST", "JWST"],
                 },
+                "sources": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["mast", "skyview"]},
+                    "default": ["mast"],
+                },
+                "skyview_surveys": {"type": "array", "items": {"type": "string"}},
+                "pixels": {"type": "integer", "default": 1024, "minimum": 64, "maximum": 2048},
             },
             "required": ["object"],
         },
@@ -377,13 +449,16 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
         return resolver_service.resolve(str(arguments["query"])).model_dump(mode="json")
     if name == "search_observations":
         if bool(arguments.get("live", False)):
-            bundle = await live_evidence_service.bundle_for_query(
+            bundle = await live_source_evidence_service.bundle_for_query(
                 str(arguments["object"]),
                 bands=_bands(arguments.get("bands")),
                 max_views=int(arguments.get("limit", 20)),
                 radius_deg=float(arguments.get("radius_deg", 0.03)),
                 missions=_missions(arguments.get("missions")),
                 rank_mode=str(arguments.get("rank_mode", "best_visual")),
+                sources=_sources(arguments.get("sources")),
+                skyview_surveys=_skyview_surveys(arguments.get("skyview_surveys")),
+                pixels=int(arguments.get("pixels", 1024)),
             )
             return {
                 "object": bundle.object.model_dump(mode="json"),
@@ -405,13 +480,16 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
     if name == "get_object_evidence":
         if bool(arguments.get("live", False)):
             return (
-                await live_evidence_service.bundle_for_query(
+                await live_source_evidence_service.bundle_for_query(
                     str(arguments["object"]),
                     bands=_bands(arguments.get("bands")),
                     max_views=int(arguments.get("max_views", 6)),
                     radius_deg=float(arguments.get("radius_deg", 0.03)),
                     missions=_missions(arguments.get("missions")),
                     rank_mode=str(arguments.get("rank_mode", "best_visual")),
+                    sources=_sources(arguments.get("sources")),
+                    skyview_surveys=_skyview_surveys(arguments.get("skyview_surveys")),
+                    pixels=int(arguments.get("pixels", 1024)),
                 )
             ).model_dump(mode="json")
         return evidence_service.bundle_for_query(
@@ -421,13 +499,16 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
         ).model_dump(mode="json")
     if name == "get_best_views":
         if bool(arguments.get("live", False)):
-            bundle = await live_evidence_service.bundle_for_query(
+            bundle = await live_source_evidence_service.bundle_for_query(
                 str(arguments["object"]),
                 bands=_bands(arguments.get("bands")),
                 max_views=int(arguments.get("max_views", 6)),
                 radius_deg=float(arguments.get("radius_deg", 0.03)),
                 missions=_missions(arguments.get("missions")),
                 rank_mode=str(arguments.get("rank_mode", "best_visual")),
+                sources=_sources(arguments.get("sources")),
+                skyview_surveys=_skyview_surveys(arguments.get("skyview_surveys")),
+                pixels=int(arguments.get("pixels", 1024)),
             )
             return {
                 "object_id": bundle.object.id,
@@ -550,13 +631,16 @@ def _live_observation_row(view: Any) -> dict[str, Any]:
 async def _compare_live_wavelengths(arguments: dict[str, Any]) -> dict[str, Any]:
     bands = _bands(arguments.get("bands")) or []
     max_views_per_band = int(arguments.get("max_views_per_band", 1))
-    bundle = await live_evidence_service.bundle_for_query(
+    bundle = await live_source_evidence_service.bundle_for_query(
         str(arguments["object"]),
         bands=bands or None,
         max_views=max(1, len(bands) * max_views_per_band),
         radius_deg=float(arguments.get("radius_deg", 0.03)),
         missions=_missions(arguments.get("missions")),
         rank_mode=str(arguments.get("rank_mode", "best_visual")),
+        sources=_sources(arguments.get("sources")),
+        skyview_surveys=_skyview_surveys(arguments.get("skyview_surveys")),
+        pixels=int(arguments.get("pixels", 1024)),
     )
     comparison: list[dict[str, Any]] = []
     for band in bands:
@@ -593,6 +677,7 @@ async def _compare_live_wavelengths(arguments: dict[str, Any]) -> dict[str, Any]
             )
     return {
         "object": bundle.object.model_dump(mode="json"),
+        "views": [view.model_dump(mode="json") for view in bundle.views],
         "comparison": comparison,
         "warnings": [warning.model_dump(mode="json") for warning in bundle.warnings],
         "meta": bundle.meta.model_dump(mode="json"),
@@ -605,13 +690,16 @@ async def _bundle_for_visual_tool(
     max_views: int,
 ) -> Any:
     if bool(arguments.get("live", True)):
-        return await live_evidence_service.bundle_for_query(
+        return await live_source_evidence_service.bundle_for_query(
             str(arguments["object"]),
             bands=_bands(arguments.get("bands")),
             max_views=max_views,
             radius_deg=float(arguments.get("radius_deg", 0.03)),
             missions=_missions(arguments.get("missions")),
             rank_mode=str(arguments.get("rank_mode", "best_visual")),
+            sources=_sources(arguments.get("sources")),
+            skyview_surveys=_skyview_surveys(arguments.get("skyview_surveys")),
+            pixels=int(arguments.get("pixels", 1024)),
         )
     return evidence_service.bundle_for_query(
         str(arguments["object"]),

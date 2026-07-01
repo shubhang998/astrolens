@@ -36,6 +36,7 @@ This repository now implements a fixture-backed AstroLens V1 slice:
 - multi-wavelength golden evidence for major objects including M87, Crab Nebula, Cassiopeia A, and Sagittarius A*
 - limited live CDS Sesame identity resolution
 - limited live MAST HST/JWST public image observation and product ingestion
+- optional live SkyView generated FITS cutouts rendered into AstroLens image assets
 - OpenAPI schema registration for `EvidenceBundle` and error models
 
 There are still no DB migrations, full FITS rendering pipeline, broad archive
@@ -69,6 +70,32 @@ manifests, and returns an `EvidenceBundle` with preview URLs, raw product links,
 citations, reuse guidance, and caveats. The MCP `get_object_evidence` tool uses
 the same path when called with `{"object":"M87","live":true,"max_views":2}`.
 
+Optional live SkyView evidence is available when the `skyview` extra is
+installed. This path resolves the target with CDS Sesame, requests bounded
+SkyView survey FITS cutouts, and renders those FITS files into AstroLens preview
+assets:
+
+```text
+GET /v1/evidence?q=M87&live=true&sources=skyview&bands=visible,infrared,xray,radio&pixels=1024
+```
+
+For MCP/ChatGPT, call `get_object_evidence` or `compare_wavelengths` with:
+
+```json
+{
+  "object": "M87",
+  "live": true,
+  "sources": ["skyview"],
+  "bands": ["visible", "infrared", "xray", "radio"],
+  "pixels": 1024
+}
+```
+
+SkyView images are generated survey cutouts, not official press images. The
+default visible view uses SDSSg/r/i RGB compositing when available, with DSS
+surveys available as fallback/custom inputs. The response includes source survey
+names, raw FITS URLs, rendering provenance, citations, and reuse guidance.
+
 ## Install
 
 ```bash
@@ -80,6 +107,18 @@ If `uv` is not installed locally, a normal virtual environment also works:
 ```bash
 python3.12 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
+```
+
+For live SkyView generated FITS cutouts, install the optional SkyView extra:
+
+```bash
+uv sync --extra skyview
+```
+
+Or with pip:
+
+```bash
+.venv/bin/pip install -e ".[skyview,dev]"
 ```
 
 ## Run
