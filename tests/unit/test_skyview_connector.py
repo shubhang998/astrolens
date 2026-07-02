@@ -388,7 +388,9 @@ def test_skyview_bundle_with_failed_renders_is_not_cached() -> None:
     asyncio.run(service.bundle_for_query("M87", pixels=256, max_views=1))
 
     assert any(view.asset is None for view in first.views)
-    assert connector.calls == 2  # partial results retry instead of caching
+    # Each attempt performs the default search plus one DSS2 coverage retry
+    # (the composite render failed); nothing is cached, so both repeat.
+    assert connector.calls == 4
 
 
 def test_skyview_evidence_service_builds_rendered_views() -> None:

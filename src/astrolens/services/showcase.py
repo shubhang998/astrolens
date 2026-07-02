@@ -236,14 +236,14 @@ def _prefer_color_hero(views: list[View]) -> View | None:
     """Pick the hero: the first color image among the top-ranked views.
 
     Archive previews of single-filter exposures are often grayscale; when a
-    color view (multi-channel composite or tinted render) sits within the top
-    three ranked views, it makes the better lead image. Ranking is otherwise
-    respected — this is presentation policy, not a re-rank.
+    color view (multi-channel composite or tinted render) exists anywhere in
+    the returned set, it makes the better lead image. Ranking is otherwise
+    respected — panels keep ranked order; this is presentation policy only.
     """
 
     if not views:
         return None
-    for view in views[:3]:
+    for view in views:
         if _is_color_view(view):
             return view
     return views[0]
