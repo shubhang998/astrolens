@@ -244,6 +244,46 @@ class _FakeFactsService:
         )
 
 
+class _FailingSource:
+    async def bundle_for_query(self, query: str, **kwargs: Any) -> EvidenceBundle:
+        from astrolens.core.enums import ErrorCode
+        from astrolens.core.errors import AstroLensError
+
+        raise AstroLensError(
+            ErrorCode.SOURCE_TIMEOUT,
+            "SkyView did not return generated FITS URLs before the timeout.",
+            retryable=True,
+        )
+
+
+def test_one_failing_source_degrades_to_warning_not_error() -> None:
+    surviving = _view("hst", VisualAssetTier.PROCESSED_ARCHIVE, BandFamily.VISIBLE, "MAST")
+    service = LiveSourceEvidenceService(
+        mast=_FakeSource(_bundle([surviving])),  # type: ignore[arg-type]
+        skyview=_FailingSource(),  # type: ignore[arg-type]
+    )
+
+    bundle = asyncio.run(service.bundle_for_query("M87", sources=("mast", "skyview")))
+
+    assert [view.id for view in bundle.views] == [surviving.id]
+    failed = [w for w in bundle.warnings if w.code == "LIVE_SOURCE_FAILED"]
+    assert len(failed) == 1 and failed[0].source == "SkyView"
+
+
+def test_both_sources_failing_raises_the_source_error() -> None:
+    import pytest
+
+    from astrolens.core.errors import AstroLensError
+
+    service = LiveSourceEvidenceService(
+        mast=_FailingSource(),  # type: ignore[arg-type]
+        skyview=_FailingSource(),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(AstroLensError):
+        asyncio.run(service.bundle_for_query("M87", sources=("mast", "skyview")))
+
+
 class _FakeTargetNameMast(_FakeSource):
     def __init__(self, bundle: EvidenceBundle) -> None:
         super().__init__(bundle)

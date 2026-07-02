@@ -62,7 +62,9 @@ class ShowcaseService:
             bands=bands,
             max_views=MAX_PANELS + 2,
             sources=("mast", "skyview"),
-            pixels=pixels,
+            # 512px cutouts generate much faster on SkyView's side than the
+            # 1024px preset and match the thumbnail render size below.
+            pixels=pixels if pixels is not None else 512,
             composite=True,
             include_facts=True,
             # SkyView cutouts are ~512px native; rendering at thumbnail size

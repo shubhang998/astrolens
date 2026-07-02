@@ -299,19 +299,46 @@ class LiveSourceEvidenceService:
             visual_mode=preset.mode,
             size=size,
         )
-        mast_bundle, skyview_bundle = await asyncio.gather(mast_task, skyview_task)
+        mast_result, skyview_result = await asyncio.gather(
+            mast_task, skyview_task, return_exceptions=True
+        )
+        # One flaky archive must not zero out the whole bundle: keep whatever
+        # source succeeded and report the other as a warning.
+        bundles: list[EvidenceBundle] = []
+        warnings: list[WarningMessage] = []
+        for source_name, result in (("MAST", mast_result), ("SkyView", skyview_result)):
+            if isinstance(result, EvidenceBundle):
+                bundles.append(result)
+                warnings.extend(result.warnings)
+                continue
+            if isinstance(result, AstroLensError):
+                warnings.append(
+                    WarningMessage(
+                        code="LIVE_SOURCE_FAILED",
+                        message=f"{source_name} evidence was skipped: {result.message}",
+                        source=source_name,
+                        retryable=result.retryable,
+                    )
+                )
+                continue
+            if isinstance(result, BaseException):
+                raise result
+        if not bundles:
+            first_error = next(
+                r for r in (mast_result, skyview_result) if isinstance(r, AstroLensError)
+            )
+            raise first_error
         views = rank_views_by_source_quality(
-            [*mast_bundle.views, *skyview_bundle.views],
+            [view for bundle in bundles for view in bundle.views],
             bands=bands,
             max_views=max_views,
         )
         notes = _notes_for_selected_views(
-            [*mast_bundle.cross_wavelength_notes, *skyview_bundle.cross_wavelength_notes],
+            [note for bundle in bundles for note in bundle.cross_wavelength_notes],
             views,
         )
-        warnings = [*mast_bundle.warnings, *skyview_bundle.warnings]
         return EvidenceBundle(
-            object=mast_bundle.object,
+            object=bundles[0].object,
             views=views,
             cross_wavelength_notes=notes,
             warnings=warnings,
