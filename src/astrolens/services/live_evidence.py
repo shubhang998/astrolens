@@ -7,6 +7,7 @@ from uuid import uuid4
 from astrolens.connectors.mast import (
     MAST_SOURCE_URL,
     MastConnector,
+    MastImageSearchResult,
     MastObservationSummary,
     MastProductSummary,
     mast_connector,
@@ -21,6 +22,7 @@ from astrolens.core.enums import (
 from astrolens.core.models import (
     Asset,
     CacheMeta,
+    CelestialObject,
     Citation,
     CrossWavelengthNote,
     DataProduct,
@@ -128,7 +130,60 @@ class LiveEvidenceService:
             product_observation_limit=search_limit,
             rank_mode=rank_mode,
         )
+        bundle = await self._bundle_from_mast_result(
+            live_object,
+            mast_result,
+            bands=bands,
+            max_views=max_views,
+            rank_mode=rank_mode,
+            validate_coordinates=True,
+        )
+        self.cache[key] = bundle
+        return bundle
 
+    async def bundle_for_target_name(
+        self,
+        obj: CelestialObject,
+        *,
+        bands: list[BandFamily] | None = None,
+        max_views: int = 6,
+        missions: tuple[str, ...] = ("HST", "JWST"),
+        rank_mode: str = "best_visual",
+    ) -> EvidenceBundle:
+        """Return live MAST evidence via archive target-name matching.
+
+        Used for moving targets (planets, moons) whose stored coordinates are
+        placeholders; coordinate-based target validation is skipped.
+        """
+
+        search_limit = min(max(max_views * 4, max_views), 24)
+        mast_result = await self.mast.search_public_images_by_target_name(
+            obj.name,
+            missions=missions,
+            limit=search_limit,
+            product_limit=8,
+            product_observation_limit=search_limit,
+            rank_mode=rank_mode,
+        )
+        return await self._bundle_from_mast_result(
+            obj,
+            mast_result,
+            bands=bands,
+            max_views=max_views,
+            rank_mode=rank_mode,
+            validate_coordinates=False,
+        )
+
+    async def _bundle_from_mast_result(
+        self,
+        live_object: CelestialObject,
+        mast_result: MastImageSearchResult,
+        *,
+        bands: list[BandFamily] | None,
+        max_views: int,
+        rank_mode: str,
+        validate_coordinates: bool,
+    ) -> EvidenceBundle:
         selected_bands = set(bands or [])
         observations = [
             observation
@@ -144,7 +199,9 @@ class LiveEvidenceService:
             self._view_for_observation(
                 object_name=live_object.name,
                 object_slug=normalize_query(live_object.name) or "liveobject",
-                object_coordinates=live_object.coordinates,
+                object_coordinates=(
+                    live_object.coordinates if validate_coordinates else None
+                ),
                 observation=observation,
                 products=products_by_obsid.get(observation.obsid, []),
             )
@@ -167,7 +224,7 @@ class LiveEvidenceService:
             if warnings and not all(view.asset for view in views)
             else CacheStatus.MISS
         )
-        bundle = EvidenceBundle(
+        return EvidenceBundle(
             object=live_object,
             views=views,
             cross_wavelength_notes=self._notes_for_views(views, bands),
@@ -177,8 +234,6 @@ class LiveEvidenceService:
                 cache=CacheMeta(status=status, stale=False),
             ),
         )
-        self.cache[key] = bundle
-        return bundle
 
     def _view_for_observation(
         self,
