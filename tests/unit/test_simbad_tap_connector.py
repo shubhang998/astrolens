@@ -70,14 +70,14 @@ def test_category_adql_includes_cone_magnitude_and_sampling_clauses() -> None:
     assert "CIRCLE('ICRS', 187.705930, 12.391120, 5.0000)" in adql
     assert "f.V <= 18.00" in adql
     assert "MOD(b.oid, 37) = 14" in adql
-    assert adql.endswith("ORDER BY b.oid")
+    assert adql.endswith("ORDER BY oid")
 
 
 def test_category_adql_clamps_limit_and_defaults_to_reference_ordering() -> None:
     adql = category_adql("G", limit=500)
 
     assert f"SELECT TOP {MAX_CATEGORY_RESULTS} " in adql
-    assert adql.endswith("ORDER BY b.nbref DESC")
+    assert adql.endswith("ORDER BY nbref DESC")
 
 
 def test_otype_for_category_teaches_on_unknown_category() -> None:

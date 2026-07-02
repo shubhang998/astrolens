@@ -163,13 +163,13 @@ SURVEY_SPECS: tuple[SkyViewSurveySpec, ...] = (
         description="reprocessed IRAS far-infrared survey useful for cold galactic dust",
     ),
     SkyViewSurveySpec(
-        survey="Planck 217",
+        survey="Planck 217 I",
         band_family=BandFamily.MILLIMETER,
         wavelength_nm=1_382_000.0,
         description="Planck 217 GHz survey useful for cold dust and CMB foregrounds",
     ),
     SkyViewSurveySpec(
-        survey="Planck 353",
+        survey="Planck 353 I",
         band_family=BandFamily.MILLIMETER,
         wavelength_nm=849_000.0,
         description="Planck 353 GHz survey useful for polarized dust emission",
@@ -181,7 +181,7 @@ SURVEY_SPECS: tuple[SkyViewSurveySpec, ...] = (
         description="Fermi LAT >1 GeV gamma-ray survey useful for the most energetic sources",
     ),
     SkyViewSurveySpec(
-        survey="Halpha",
+        survey="H-Alpha Comp",
         band_family=BandFamily.VISIBLE,
         wavelength_nm=656.3,
         description="all-sky hydrogen-alpha composite useful for emission nebulae",
@@ -194,7 +194,7 @@ DEFAULT_SURVEY_NAMES_BY_BAND: dict[BandFamily, tuple[str, ...]] = {
     BandFamily.ULTRAVIOLET: ("GALEX Near UV",),
     BandFamily.XRAY: ("RASS-Cnt Broad",),
     BandFamily.RADIO: ("VLA FIRST (1.4 GHz)",),
-    BandFamily.MILLIMETER: ("Planck 217",),
+    BandFamily.MILLIMETER: ("Planck 217 I",),
     BandFamily.GAMMA: ("Fermi 5",),
 }
 
