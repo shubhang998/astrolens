@@ -78,16 +78,26 @@ class FakeSkyViewEvidenceConnector:
         )
 
 
-class FakeRenderer:
+class CountingSkyViewEvidenceConnector(FakeSkyViewEvidenceConnector):
     def __init__(self) -> None:
+        self.calls = 0
+
+    async def search_generated_fits(self, **kwargs: Any) -> SkyViewSearchResult:
+        self.calls += 1
+        return await super().search_generated_fits(**kwargs)
+
+
+class FakeRenderer:
+    def __init__(self, status: str = "complete") -> None:
+        self.status = status
         self.requests: list[FitsRenderRequest] = []
 
     def render(self, request: FitsRenderRequest) -> FitsRenderResult:
         self.requests.append(request)
         return FitsRenderResult(
-            status="complete",
+            status=self.status,  # type: ignore[arg-type]
             asset_id="asset:test:skyview-render",
-            asset_url="/v1/rendered/fake-skyview.png",
+            asset_url="/v1/rendered/fake-skyview.png" if self.status == "complete" else None,
             cache_key="render:test:skyview",
         )
 
@@ -283,6 +293,56 @@ def test_skyview_health_is_graceful_without_optional_dependency(monkeypatch) -> 
 
     assert health.name == "SkyView"
     assert health.status == SourceHealthStatus.UNAVAILABLE
+
+
+def test_skyview_bundle_cache_serves_hits_without_requerying() -> None:
+    connector = CountingSkyViewEvidenceConnector()
+    service = SkyViewEvidenceService(
+        resolver=FakeResolver(),  # type: ignore[arg-type]
+        skyview=connector,  # type: ignore[arg-type]
+        renderer=FakeRenderer(),  # type: ignore[arg-type]
+    )
+
+    first = asyncio.run(service.bundle_for_query("M87", pixels=256, max_views=1))
+    second = asyncio.run(service.bundle_for_query("M87", pixels=256, max_views=1))
+
+    assert connector.calls == 1
+    assert first.meta.cache is not None and first.meta.cache.status != "hit"
+    assert second.meta.cache is not None and second.meta.cache.status == "hit"
+    assert [view.id for view in second.views] == [view.id for view in first.views]
+    # Different parameters miss the cache.
+    asyncio.run(service.bundle_for_query("M87", pixels=256, max_views=2))
+    assert connector.calls == 2
+
+
+def test_skyview_bundle_cache_expires_after_ttl() -> None:
+    connector = CountingSkyViewEvidenceConnector()
+    service = SkyViewEvidenceService(
+        resolver=FakeResolver(),  # type: ignore[arg-type]
+        skyview=connector,  # type: ignore[arg-type]
+        renderer=FakeRenderer(),  # type: ignore[arg-type]
+        cache_ttl_seconds=0.0,
+    )
+
+    asyncio.run(service.bundle_for_query("M87", pixels=256, max_views=1))
+    asyncio.run(service.bundle_for_query("M87", pixels=256, max_views=1))
+
+    assert connector.calls == 2
+
+
+def test_skyview_bundle_with_failed_renders_is_not_cached() -> None:
+    connector = CountingSkyViewEvidenceConnector()
+    service = SkyViewEvidenceService(
+        resolver=FakeResolver(),  # type: ignore[arg-type]
+        skyview=connector,  # type: ignore[arg-type]
+        renderer=FakeRenderer(status="failed"),  # type: ignore[arg-type]
+    )
+
+    first = asyncio.run(service.bundle_for_query("M87", pixels=256, max_views=1))
+    asyncio.run(service.bundle_for_query("M87", pixels=256, max_views=1))
+
+    assert any(view.asset is None for view in first.views)
+    assert connector.calls == 2  # partial results retry instead of caching
 
 
 def test_skyview_evidence_service_builds_rendered_views() -> None:
