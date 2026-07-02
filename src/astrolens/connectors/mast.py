@@ -22,31 +22,32 @@ MAST_DOWNLOAD_BASE = "https://mast.stsci.edu/api/v0.1/Download/file"
 MAST_SOURCE_URL = "https://mast.stsci.edu/api/v0/"
 MAST_PORTAL_URL = "https://mast.stsci.edu/portal/Mashup/Clients/Mast/Portal.html"
 
-MAST_IMAGE_COLUMNS = ",".join(
-    [
-        "obsid",
-        "obs_id",
-        "obs_collection",
-        "instrument_name",
-        "filters",
-        "target_name",
-        "dataproduct_type",
-        "dataRights",
-        "t_exptime",
-        "t_min",
-        "t_max",
-        "wave_region",
-        "wavelength_region",
-        "em_min",
-        "em_max",
-        "wave_min",
-        "wave_max",
-        "calib_level",
-        "s_ra",
-        "s_dec",
-        "distance",
-    ]
-)
+_MAST_BASE_COLUMNS = [
+    "obsid",
+    "obs_id",
+    "obs_collection",
+    "instrument_name",
+    "filters",
+    "target_name",
+    "dataproduct_type",
+    "dataRights",
+    "t_exptime",
+    "t_min",
+    "t_max",
+    "wave_region",
+    "wavelength_region",
+    "em_min",
+    "em_max",
+    "wave_min",
+    "wave_max",
+    "calib_level",
+    "s_ra",
+    "s_dec",
+]
+# `distance` is a computed separation from the search center, so MAST only
+# accepts it on positional cone queries — not on target-name Filtered queries.
+MAST_IMAGE_COLUMNS = ",".join([*_MAST_BASE_COLUMNS, "distance"])
+MAST_TARGET_NAME_COLUMNS = ",".join(_MAST_BASE_COLUMNS)
 
 RANK_MODES = {"best_visual", "latest", "science_ready", "balanced"}
 
@@ -428,7 +429,8 @@ class MastConnector:
         request = {
             "service": "Mast.Caom.Filtered",
             "params": {
-                "columns": MAST_IMAGE_COLUMNS,
+                # Non-positional query: no computed `distance` column.
+                "columns": MAST_TARGET_NAME_COLUMNS,
                 "filters": [
                     {"paramName": "target_name", "values": [normalized_target]},
                     {"paramName": "obs_collection", "values": normalized_missions},

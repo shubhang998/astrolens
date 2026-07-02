@@ -391,6 +391,10 @@ def test_mast_target_name_search_uses_filtered_service_with_upper_target() -> No
     assert filters["dataproduct_type"] == ["image"]
     assert filters["dataRights"] == ["PUBLIC"]
     assert "position" not in payload["params"]
+    # `distance` is a positional-only computed column; MAST rejects the whole
+    # target-name query if it is requested.
+    assert "distance" not in payload["params"]["columns"].split(",")
+    assert "target_name" in payload["params"]["columns"].split(",")
 
 
 def test_mast_invoke_maps_non_dict_json_to_source_unavailable(monkeypatch) -> None:
