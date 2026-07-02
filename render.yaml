@@ -2,7 +2,7 @@ services:
   - type: web
     name: astrolens
     runtime: docker
-    plan: starter
+    plan: pro
     region: oregon
     healthCheckPath: /v1/health
     # The image entrypoint (docker/entrypoint.sh) binds Render's assigned
@@ -18,14 +18,12 @@ services:
         value: development
       - key: ASTROLENS_RENDER_CACHE_DIR
         value: /var/astrolens-cache/renders
-      # Warmer disabled on the 512MB starter instance: a background crawler
-      # plus foreground traffic exceeds its memory budget (observed crash
-      # loop). Re-enable when the plan grows; the persistent disk keeps
-      # anything ever requested warm.
+      # Pro instance (4GB): the startup warmer keeps the 50 curated objects
+      # answering from warm caches.
       - key: ASTROLENS_WARM_CACHE
-        value: "0"
-      # 512MB starter instance: exactly one FITS render at a time, process-wide
-      # (warmer + user calls share this budget). Raise when the plan grows.
-      - key: ASTROLENS_MAX_CONCURRENT_RENDERS
         value: "1"
+      # Pro instance (4GB/2CPU): three concurrent renders, process-wide
+      # (warmer + user calls share this budget).
+      - key: ASTROLENS_MAX_CONCURRENT_RENDERS
+        value: "3"
     autoDeploy: true
