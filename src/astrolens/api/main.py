@@ -44,7 +44,18 @@ from astrolens.core.models import (
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    import logging
+
     from astrolens.services.warmer import warm_curated_cache, warming_enabled
+
+    # Application loggers (e.g. astrolens.warmer) need a handler or their
+    # INFO lines silently vanish from platform logs; uvicorn only configures
+    # its own loggers.
+    if not logging.getLogger().handlers:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(name)s %(levelname)s %(message)s",
+        )
 
     warm_task: asyncio.Task[int] | None = None
     if warming_enabled():

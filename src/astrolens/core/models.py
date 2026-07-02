@@ -277,10 +277,21 @@ class EvidenceBundle(AstroLensModel):
     meta: ResponseMeta
 
 
+class WarmerStatus(AstroLensModel):
+    """Progress of the startup cache warmer."""
+
+    enabled: bool = False
+    warmed: int = Field(default=0, ge=0)
+    total: int = Field(default=0, ge=0)
+    complete: bool = False
+    current: str | None = None
+
+
 class HealthResponse(AstroLensModel):
     """Basic service health response."""
 
     status: str = "ok"
+    cache_warmer: WarmerStatus | None = None
 
 
 class SourceHealth(AstroLensModel):

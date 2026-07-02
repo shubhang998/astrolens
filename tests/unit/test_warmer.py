@@ -56,3 +56,15 @@ def test_warming_is_opt_in(monkeypatch) -> None:
     assert warming_enabled() is True
     monkeypatch.setenv("ASTROLENS_WARM_CACHE", "0")
     assert warming_enabled() is False
+
+
+def test_warm_status_is_tracked_for_health_reporting() -> None:
+    from astrolens.services.warmer import warm_status
+
+    service = _RecordingService()
+    asyncio.run(warm_curated_cache(service, start_delay=0.0, spacing=0.0))  # type: ignore[arg-type]
+
+    assert warm_status["enabled"] is True
+    assert warm_status["complete"] is True
+    assert warm_status["warmed"] == warm_status["total"] == len(repository.list_objects())
+    assert warm_status["current"] is None
