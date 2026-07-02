@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from collections.abc import Coroutine
 from typing import Any
 from uuid import uuid4
@@ -72,6 +73,10 @@ SKYVIEW_REUSE = ReusePolicy(
 )
 
 
+SKYVIEW_BUNDLE_TTL_SECONDS = 6 * 3600.0
+SKYVIEW_BUNDLE_CACHE_MAX_ENTRIES = 128
+
+
 class SkyViewEvidenceService:
     """Build agent-facing views from public SkyView generated FITS cutouts."""
 
@@ -80,11 +85,14 @@ class SkyViewEvidenceService:
         resolver: LiveIngestionService = live_ingestion_service,
         skyview: SkyViewConnector = skyview_connector,
         renderer: FitsRenderer | None = None,
+        *,
+        cache_ttl_seconds: float = SKYVIEW_BUNDLE_TTL_SECONDS,
     ) -> None:
         self.resolver = resolver
         self.skyview = skyview
         self.renderer = renderer or FitsRenderer()
-        self.cache: dict[str, EvidenceBundle] = {}
+        self.cache: dict[str, tuple[float, EvidenceBundle]] = {}
+        self.cache_ttl_seconds = cache_ttl_seconds
 
     async def bundle_for_query(
         self,
@@ -103,6 +111,20 @@ class SkyViewEvidenceService:
 
         resolved_visual_mode = coerce_visual_mode(visual_mode)
         bounded_pixels = max(64, min(int(pixels), 2048))
+        key = self._cache_key(
+            query,
+            bands=bands,
+            max_views=max_views,
+            radius_deg=radius_deg,
+            surveys=surveys,
+            pixels=bounded_pixels,
+            visual_mode=resolved_visual_mode,
+            size=size,
+            stretch=stretch,
+        )
+        cached = self._cached_bundle(key)
+        if cached is not None:
+            return cached
         live_object, _resolve_cache_status = await self.resolver.object_live(query)
         result = await self.skyview.search_generated_fits(
             ra_deg=live_object.coordinates.ra_deg,
@@ -170,7 +192,35 @@ class SkyViewEvidenceService:
                 ),
             ),
         )
+        self._store_bundle(key, bundle)
         return bundle
+
+    def _cached_bundle(self, key: str) -> EvidenceBundle | None:
+        entry = self.cache.get(key)
+        if entry is None:
+            return None
+        stored_at, bundle = entry
+        if time.monotonic() - stored_at > self.cache_ttl_seconds:
+            self.cache.pop(key, None)
+            return None
+        return bundle.model_copy(
+            update={
+                "meta": ResponseMeta(
+                    request_id=f"req_{uuid4().hex}",
+                    cache=CacheMeta(status=CacheStatus.HIT, stale=False),
+                )
+            },
+            deep=True,
+        )
+
+    def _store_bundle(self, key: str, bundle: EvidenceBundle) -> None:
+        # Only fully successful results are cached: partial renders should be
+        # retried on the next request, not frozen for the TTL.
+        if not bundle.views or any(view.asset is None for view in bundle.views):
+            return
+        if len(self.cache) >= SKYVIEW_BUNDLE_CACHE_MAX_ENTRIES:
+            self.cache.pop(next(iter(self.cache)))
+        self.cache[key] = (time.monotonic(), bundle)
 
     async def _views_for_products(
         self,
