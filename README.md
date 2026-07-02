@@ -179,6 +179,11 @@ free plan sleeps after idle and cold-starts too slowly for MCP tool calls);
 its 512 MB RAM comfortably covers SkyView cutout rendering, but very large
 HST/JWST FITS composites may need a bigger instance.
 
+The blueprint also mounts a persistent disk at the render cache directory so
+rendered images survive deploys, and sets `ASTROLENS_WARM_CACHE=1`, which
+starts a polite background warmer that walks the 50 curated objects on
+startup so famous targets answer from warm caches.
+
 ## Test
 
 ```bash

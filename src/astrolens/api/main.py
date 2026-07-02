@@ -1,5 +1,9 @@
 """FastAPI application entrypoint for AstroLens."""
 
+import asyncio
+import contextlib
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from uuid import uuid4
 
 from fastapi import FastAPI, Request, status
@@ -38,12 +42,29 @@ from astrolens.core.models import (
 )
 
 
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    from astrolens.services.warmer import warm_curated_cache, warming_enabled
+
+    warm_task: asyncio.Task[int] | None = None
+    if warming_enabled():
+        warm_task = asyncio.create_task(warm_curated_cache())
+    try:
+        yield
+    finally:
+        if warm_task is not None:
+            warm_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await warm_task
+
+
 def create_app() -> FastAPI:
     """Create and configure the FastAPI app."""
 
     app = FastAPI(
         title="AstroLens Evidence API",
         version=__version__,
+        lifespan=_lifespan,
         description=(
             "Read-only astronomy evidence API for agents. AstroLens returns "
             "structured evidence, assets, citations, reuse metadata, and caveats; "

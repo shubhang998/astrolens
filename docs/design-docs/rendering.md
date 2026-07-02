@@ -136,6 +136,17 @@ V1 should reject or defer:
 - Avoid subjective enhancements that cannot be described.
 - Avoid overwriting source assets.
 
+## Single-band false-color tints
+
+Single-product renders are no longer plain grayscale outside the visible
+band: intensity maps through an observatory-conventional black -> hue ->
+white duotone (`tint_for_wavelength`): X-ray blue-violet, radio orange-red,
+infrared amber, ultraviolet violet, gamma magenta, millimeter teal. Visible
+single filters stay neutral (grayscale is the honest choice there). The tint
+is a deterministic lookup by wavelength, is recorded as a recipe caveat
+("brightness is real data, hue is presentational"), and never feeds the
+color-separation boost used by multi-band composites.
+
 ## Cross-source composites and band recipes
 
 `services/composites.py` builds one multi-wavelength composite per object by
