@@ -1,5 +1,6 @@
 """Render and job routes."""
 
+import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -20,7 +21,7 @@ async def render(request: RenderRequest) -> RenderResponse:
 
 @router.post("/render/fits-plan", response_model=FitsRenderResult)
 async def plan_fits_render(request: FitsRenderRequest) -> FitsRenderResult:
-    return fits_renderer.render(request)
+    return await asyncio.to_thread(fits_renderer.render, request)
 
 
 @router.get("/rendered/{filename}")

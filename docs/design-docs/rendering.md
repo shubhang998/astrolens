@@ -136,6 +136,32 @@ V1 should reject or defer:
 - Avoid subjective enhancements that cannot be described.
 - Avoid overwriting source assets.
 
+## Cross-source composites and band recipes
+
+`services/composites.py` builds one multi-wavelength composite per object by
+mixing FITS products from different archives (e.g. SkyView radio + MAST
+visible). Behavior:
+
+- Band recipes are keyed by object type (`recipe_for_object_type`): AGN →
+  radio+X-ray+visible; supernova remnants → X-ray+radio+visible; star-forming
+  regions → infrared+visible; default → visible.
+- Channel picks take the highest-ranked view per band that carries an eligible
+  FITS product, from any archive. Fewer than two channels → no composite
+  (callers fall back to the best single view with a warning).
+- The renderer is invoked with `FitsRenderRequest.preselected=True`, which
+  skips visit-fingerprint grouping and maps channels purely by wavelength
+  (shortest→blue, longest→red). Reprojection, the ≥5% overlap gate, and
+  `fallback_single_channel` behavior are unchanged.
+- Pixel-scale quality gate: if channel pixel scales differ by more than 4x
+  (`pixel_scale_ratio`), a resolution-mismatch caveat is appended — never
+  refuse, always caveat.
+- Composite views are `band_family=multiwavelength`, tier
+  `astrolens_rendered`, `false_color=true`, with per-channel provenance notes
+  ("red: NVSS (SkyView)"), the union of contributing citations, and a
+  mandatory false-color caveat plus the recipe rationale.
+- Composites are opt-in (`composite=true` on the live-sources service; the
+  `show_object` MCP tool enables it) so existing responses are unchanged.
+
 ## Caveats
 
 Each rendered astronomy image should include relevant caveats:
@@ -161,6 +187,16 @@ Rendering must not:
 - write outside configured asset directories/buckets
 - allow path traversal
 - expose private source URLs/secrets
+
+FITS download URLs are validated before any fetch: only `https` URLs whose
+host matches a trusted archive suffix (`stsci.edu`, `gsfc.nasa.gov` by
+default) are downloaded. Deployments can extend the allowlist with the
+`ASTROLENS_RENDER_URL_ALLOWLIST` environment variable (comma-separated host
+suffixes). `file://` URLs are rejected except when a renderer is constructed
+with `allow_file_urls=True` (tests only). Failed or unsupported renders never
+report an `asset_url`, and local cache paths are never serialized into public
+responses. Render execution runs in worker threads (`asyncio.to_thread`) so
+downloads and pixel work never block the API event loop.
 
 ## Tests
 

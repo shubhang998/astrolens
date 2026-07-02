@@ -209,3 +209,195 @@ def test_explicit_radius_and_pixels_override_visual_mode_presets() -> None:
     assert skyview.calls[0][1]["radius_deg"] == 0.04
     assert skyview.calls[0][1]["pixels"] == 768
     assert skyview.calls[0][1]["visual_mode"] == VisualMode.WIDE
+
+
+class _FakeResolver:
+    async def object_live(self, query: str) -> tuple[CelestialObject, CacheStatus]:
+        return _OBJECT, CacheStatus.HIT
+
+
+class _FakeFactsService:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def facts_for_object(self, obj: CelestialObject) -> Any:
+        from astrolens.core.models import Fact
+        from astrolens.services.facts import ObjectFactsResult
+
+        self.calls.append(obj.name)
+        return ObjectFactsResult(
+            facts=[
+                Fact(
+                    id="fact:m87:redshift",
+                    entity_type="object",
+                    entity_id=obj.id,
+                    claim="M87 has a measured redshift of z = 0.00428.",
+                    scope="catalog_measurement",
+                    confidence=0.9,
+                    citation_ids=["citation:simbad:tap"],
+                    value=0.00428,
+                    unit="dimensionless",
+                    quantity_kind="redshift",
+                    source_fields=["basic.rvz_redshift"],
+                )
+            ]
+        )
+
+
+class _FakeTargetNameMast(_FakeSource):
+    def __init__(self, bundle: EvidenceBundle) -> None:
+        super().__init__(bundle)
+        self.target_calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def bundle_for_target_name(self, obj: CelestialObject, **kwargs: Any) -> EvidenceBundle:
+        self.target_calls.append((obj.name, kwargs))
+        return self.bundle
+
+
+def test_ephemeris_target_routes_to_mast_target_name_search() -> None:
+    saturn_view = _view("hst-saturn", VisualAssetTier.PROCESSED_ARCHIVE, BandFamily.VISIBLE, "MAST")
+    mast = _FakeTargetNameMast(_bundle([saturn_view]))
+    service = LiveSourceEvidenceService(
+        mast=mast,  # type: ignore[arg-type]
+        skyview=_FakeSource(_bundle([])),  # type: ignore[arg-type]
+    )
+
+    bundle = asyncio.run(
+        service.bundle_for_query("Saturn", sources=("mast", "skyview"))
+    )
+
+    assert mast.target_calls and mast.target_calls[0][0] == "Saturn"
+    assert mast.calls == []  # never cone-searched
+    assert any(w.code == "EPHEMERIS_TARGET_NAME_SEARCH" for w in bundle.warnings)
+    assert any(w.code == "EPHEMERIS_SKYVIEW_EXCLUDED" for w in bundle.warnings)
+
+
+def test_ephemeris_target_without_skyview_gets_no_skyview_warning() -> None:
+    mast = _FakeTargetNameMast(_bundle([]))
+    service = LiveSourceEvidenceService(
+        mast=mast,  # type: ignore[arg-type]
+        skyview=_FakeSource(_bundle([])),  # type: ignore[arg-type]
+    )
+
+    bundle = asyncio.run(service.bundle_for_query("Jupiter", sources=("mast",)))
+
+    assert not any(w.code == "EPHEMERIS_SKYVIEW_EXCLUDED" for w in bundle.warnings)
+    assert any(w.code == "EPHEMERIS_TARGET_NAME_SEARCH" for w in bundle.warnings)
+
+
+def test_seed_planets_are_flagged_as_ephemeris_objects() -> None:
+    from astrolens.services.repository import repository
+
+    for object_id in (
+        "astro:object:saturn",
+        "astro:object:jupiter",
+        "astro:object:titan",
+    ):
+        obj = repository.get_object(object_id)
+        assert obj.ephemeris_object is True
+        assert all(
+            "astrolens:curated" in source.name for source in obj.identity_sources
+        )
+
+    assert repository.get_object("astro:object:m87").ephemeris_object is False
+
+
+class _FakeCompositeService:
+    def __init__(self, view: View | None) -> None:
+        self.view = view
+        self.calls: list[str] = []
+
+    async def composite_view(
+        self, *, obj: CelestialObject, views: list[View], recipe: Any
+    ) -> View | None:
+        self.calls.append(obj.name)
+        return self.view
+
+
+def test_composite_true_prepends_multiwavelength_view() -> None:
+    composite_view = _view(
+        "composite",
+        VisualAssetTier.ASTROLENS_RENDERED,
+        BandFamily.MULTIWAVELENGTH,
+        "AstroLens composite",
+    )
+    single = _view("hst", VisualAssetTier.PROCESSED_ARCHIVE, BandFamily.VISIBLE, "MAST")
+    composites = _FakeCompositeService(composite_view)
+    service = LiveSourceEvidenceService(
+        mast=_FakeSource(_bundle([single])),  # type: ignore[arg-type]
+        skyview=_FakeSource(_bundle([])),  # type: ignore[arg-type]
+        composites=composites,  # type: ignore[arg-type]
+    )
+
+    bundle = asyncio.run(
+        service.bundle_for_query("M87", sources=("mast", "skyview"), composite=True)
+    )
+
+    assert composites.calls == ["M87"]
+    assert bundle.views[0].band_family == BandFamily.MULTIWAVELENGTH
+    assert bundle.views[1].id == single.id
+
+
+def test_composite_unavailable_degrades_to_warning() -> None:
+    composites = _FakeCompositeService(None)
+    service = LiveSourceEvidenceService(
+        mast=_FakeSource(_bundle([])),  # type: ignore[arg-type]
+        skyview=_FakeSource(_bundle([])),  # type: ignore[arg-type]
+        composites=composites,  # type: ignore[arg-type]
+    )
+
+    bundle = asyncio.run(
+        service.bundle_for_query("M87", sources=("mast", "skyview"), composite=True)
+    )
+
+    assert any(warning.code == "COMPOSITE_UNAVAILABLE" for warning in bundle.warnings)
+
+
+def test_composite_defaults_off_and_bundle_shape_unchanged() -> None:
+    composites = _FakeCompositeService(None)
+    service = LiveSourceEvidenceService(
+        mast=_FakeSource(_bundle([])),  # type: ignore[arg-type]
+        skyview=_FakeSource(_bundle([])),  # type: ignore[arg-type]
+        composites=composites,  # type: ignore[arg-type]
+    )
+
+    bundle = asyncio.run(service.bundle_for_query("M87", sources=("mast", "skyview")))
+
+    assert composites.calls == []
+    assert bundle.object_facts == []
+    assert not any(warning.code.startswith("COMPOSITE") for warning in bundle.warnings)
+
+
+def test_include_facts_attaches_object_facts_to_bundle() -> None:
+    mast = _FakeSource(
+        _bundle([_view("hst", VisualAssetTier.PROCESSED_ARCHIVE, BandFamily.VISIBLE, "MAST")])
+    )
+    facts = _FakeFactsService()
+    service = LiveSourceEvidenceService(
+        mast=mast,  # type: ignore[arg-type]
+        skyview=_FakeSource(_bundle([])),  # type: ignore[arg-type]
+        facts=facts,  # type: ignore[arg-type]
+        resolver=_FakeResolver(),  # type: ignore[arg-type]
+    )
+
+    bundle = asyncio.run(service.bundle_for_query("M87", include_facts=True))
+
+    assert facts.calls == ["M87"]
+    assert len(bundle.object_facts) == 1
+    assert bundle.object_facts[0].quantity_kind == "redshift"
+
+
+def test_facts_are_omitted_by_default() -> None:
+    mast = _FakeSource(_bundle([]))
+    facts = _FakeFactsService()
+    service = LiveSourceEvidenceService(
+        mast=mast,  # type: ignore[arg-type]
+        skyview=_FakeSource(_bundle([])),  # type: ignore[arg-type]
+        facts=facts,  # type: ignore[arg-type]
+        resolver=_FakeResolver(),  # type: ignore[arg-type]
+    )
+
+    bundle = asyncio.run(service.bundle_for_query("M87"))
+
+    assert facts.calls == []
+    assert bundle.object_facts == []

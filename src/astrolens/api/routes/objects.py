@@ -9,10 +9,12 @@ from astrolens.core.enums import CacheStatus
 from astrolens.core.models import (
     CacheMeta,
     ObjectDetailResponse,
+    ObjectFactsResponse,
     ObservationsResponse,
     ResponseMeta,
     ViewsResponse,
 )
+from astrolens.services.facts import facts_compiler_service
 from astrolens.services.ranking import rank_views
 from astrolens.services.repository import repository
 
@@ -46,6 +48,19 @@ async def get_observations(
     observations = repository.observations_for_object(object_id, parse_bands(bands))[:limit]
     return ObservationsResponse(
         object=repository.get_object(object_id), observations=observations, meta=meta()
+    )
+
+
+@router.get("/objects/{object_id}/facts", response_model=ObjectFactsResponse)
+async def get_object_facts(object_id: str) -> ObjectFactsResponse:
+    obj = repository.get_object(object_id)
+    result = await facts_compiler_service.facts_for_object(obj)
+    return ObjectFactsResponse(
+        object=obj,
+        facts=result.facts,
+        citations=result.citations,
+        warnings=result.warnings,
+        meta=meta(),
     )
 
 

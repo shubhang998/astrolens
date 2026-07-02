@@ -1,0 +1,16 @@
+{
+  "metadata": [
+    {"name": "main_id"},
+    {"name": "otype"},
+    {"name": "ra"},
+    {"name": "dec"},
+    {"name": "rvz_redshift"},
+    {"name": "galdim_majaxis"},
+    {"name": "V"}
+  ],
+  "data": [
+    ["3C 273", "QSO", 187.2779155, 2.0523883, 0.1583, null, 12.85],
+    ["3C 48", "QSO", 24.4220808, 33.1597594, 0.367, null, 16.2],
+    ["QSO B1422+2309", "QSO", 216.158755, 22.933646, 3.62, null, 16.77]
+  ]
+}

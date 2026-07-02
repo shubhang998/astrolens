@@ -154,8 +154,8 @@ Current implementation:
 
 - Dependency: optional `astrolens[skyview]`, backed by `astroquery.skyview`.
 - Query style: AstroLens resolves the object first, then sends numeric ICRS coordinates to SkyView.
-- Default surveys: SDSSg/r/i for visible RGB where available, 2MASS-K, GALEX Near UV, RASS-Cnt Broad, and VLA FIRST.
-- Fallback/custom surveys: DSS2 Blue/Red/IR and NVSS remain supported when users need wider coverage.
+- Default surveys: SDSSg/r/i for visible RGB where available, 2MASS-K, GALEX Near UV, RASS-Cnt Broad, VLA FIRST, Planck 217 (millimeter), and Fermi 5 (gamma).
+- Fallback/custom surveys: DSS2 Blue/Red/IR, NVSS, WISE 3.4/12/22, IRIS 100, Planck 353, and Halpha remain supported when users need wider coverage.
 - Visual modes: `detail`, `context`, and `wide` select bounded radius/pixel presets before SkyView is called; explicit radius/pixel inputs override the preset.
 - Product shape: HTTPS generated FITS URLs with survey name, band family, source record ID, and raw metadata.
 - Asset shape: AstroLens-rendered PNG previews or RGB composites from those FITS files, with rendering caveats.
@@ -164,6 +164,54 @@ Current implementation:
   SkyView client.
 
 Do not let users pass arbitrary FITS URLs through this connector. The connector should only use bounded survey names and generated URLs returned by SkyView.
+
+### SIMBAD TAP (implemented)
+
+Use for object measurements and category/region search. The connector
+(`src/astrolens/connectors/simbad_tap.py`) POSTs ADQL to the fixed sync TAP
+endpoint (`https://simbad.cds.unistra.fr/simbad/sim-tap/sync`, `format=json`)
+and is pinned to the stable `basic`/`ident`/`otypes`/`allfluxes` tables.
+
+Identity handoff rule: `fetch_measurements` takes the canonical name that CDS
+Sesame returned (e.g. `"M  87"`) because SIMBAD `ident.id` matching is
+string-exact; one whitespace-collapsed retry covers spacing drift. Never fuzzy
+match identity inside this connector.
+
+Measurements query (columns parsed by metadata name, never position):
+
+```sql
+SELECT b.main_id, b.otype, b.ra, b.dec,
+       b.plx_value, b.plx_err, b.plx_bibcode,
+       b.rvz_redshift, b.rvz_radvel, b.rvz_type, b.rvz_bibcode,
+       b.morph_type, b.morph_bibcode,
+       b.galdim_majaxis, b.galdim_minaxis, b.galdim_bibcode,
+       b.sp_type, b.sp_bibcode, b.nbref,
+       f.V, f.B, f.K
+FROM basic AS b
+JOIN ident AS i ON i.oidref = b.oid
+LEFT JOIN allfluxes AS f ON f.oidref = b.oid
+WHERE i.id = 'M  87'
+```
+
+Category search joins `otypes` (hierarchical: 'G' matches Seyferts), supports
+an optional `CONTAINS(POINT..., CIRCLE...)` cone and V-magnitude limit, and
+clamps `TOP` to 20. Random sampling is server-side and portable:
+`MOD(b.oid, m) = r` with a seedable residue; if a sampled page returns too few
+rows the modulus halves and re-queries, and the final unsampled fallback is
+flagged with a "non-random" warning.
+
+Categories come from the curated `CATEGORY_OTYPES` map (quasar, galaxy,
+supernova-remnant, star-forming-region, planetary-nebula, pulsar, ...);
+unknown categories raise `VALIDATION_ERROR` listing supported values. ADQL
+string literals are escaped (quotes doubled, control characters rejected).
+
+### Moving targets (MAST target-name search)
+
+Solar-system bodies are flagged `ephemeris_object=true` and their stored
+coordinates are placeholders. Live evidence for them must use
+`MastConnector.search_public_images_by_target_name` (service
+`Mast.Caom.Filtered`, upper-cased `target_name` filter) — never a coordinate
+cone search. SkyView is excluded for these targets with a teaching warning.
 
 ### HEASARC / Chandra
 

@@ -7,6 +7,8 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
+from pydantic import ValidationError
+
 from astrolens.connectors.base import ResolvedObjectCandidate
 from astrolens.connectors.error_mapping import connector_error_from_exception
 from astrolens.core.enums import ErrorCode, SourceHealthStatus
@@ -58,10 +60,10 @@ class SesameConnector:
             ) from exc
         try:
             return self.parse_response(body, query=query, source_url=url)
-        except ElementTree.ParseError as exc:
+        except (ElementTree.ParseError, ValueError, ValidationError) as exc:
             raise AstroLensError(
                 ErrorCode.SOURCE_UNAVAILABLE,
-                "CDS Sesame returned malformed XML.",
+                "CDS Sesame returned a response that could not be parsed.",
                 retryable=True,
                 details={"source": self.name, "query": query, "error_type": type(exc).__name__},
             ) from exc

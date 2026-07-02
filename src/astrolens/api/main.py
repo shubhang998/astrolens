@@ -29,6 +29,7 @@ from astrolens.core.models import (
     Fact,
     ImageProvenance,
     ObjectAlias,
+    ObjectFactsResponse,
     Observation,
     ReusePolicy,
     SourceHealthResponse,
@@ -93,6 +94,7 @@ def register_schema_models(app: FastAPI) -> None:
             Citation,
             ReusePolicy,
             EvidenceBundle,
+            ObjectFactsResponse,
             SourceHealthResponse,
             APIError,
         ):
@@ -133,7 +135,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         request_id = f"req_{uuid4().hex}"
         error = APIError(
             error=APIErrorDetail(
-                code=ErrorCode.INVALID_COORDINATES,
+                code=ErrorCode.VALIDATION_ERROR,
                 message="Request validation failed.",
                 retryable=False,
                 request_id=request_id,
@@ -164,6 +166,7 @@ def _status_for_error(code: ErrorCode) -> int:
         return status.HTTP_503_SERVICE_UNAVAILABLE
     if code in {
         ErrorCode.INVALID_COORDINATES,
+        ErrorCode.VALIDATION_ERROR,
         ErrorCode.UNSUPPORTED_BAND,
         ErrorCode.RENDER_NOT_SUPPORTED,
         ErrorCode.PRODUCT_TOO_LARGE,

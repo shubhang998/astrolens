@@ -397,6 +397,81 @@ class MastConnector:
             radius_deg=radius_deg,
             missions=normalized_missions,
         )
+        return await self._assemble_image_search_result(
+            query_result,
+            normalized_missions=normalized_missions,
+            rank_mode=normalized_rank_mode,
+            limit=limit,
+            product_limit=product_limit,
+            product_observation_limit=product_observation_limit,
+        )
+
+    async def search_public_images_by_target_name(
+        self,
+        target_name: str,
+        *,
+        missions: tuple[str, ...] = ("HST", "JWST"),
+        limit: int = 6,
+        product_limit: int = 8,
+        product_observation_limit: int = 3,
+        rank_mode: str = "best_visual",
+    ) -> MastImageSearchResult:
+        """Search public images by archive target name (for moving targets).
+
+        Solar-system bodies move across the sky, so fixed-coordinate cone
+        searches can never find them; CAOM target names (upper-cased) can.
+        """
+
+        normalized_missions = [mission.strip().upper() for mission in missions if mission.strip()]
+        normalized_rank_mode = rank_mode if rank_mode in RANK_MODES else "best_visual"
+        normalized_target = target_name.strip().upper()
+        request = {
+            "service": "Mast.Caom.Filtered",
+            "params": {
+                "columns": MAST_IMAGE_COLUMNS,
+                "filters": [
+                    {"paramName": "target_name", "values": [normalized_target]},
+                    {"paramName": "obs_collection", "values": normalized_missions},
+                    {"paramName": "dataproduct_type", "values": ["image"]},
+                    {"paramName": "dataRights", "values": ["PUBLIC"]},
+                ],
+            },
+            "format": "json",
+            "pagesize": 500,
+            "removenullcolumns": True,
+            "timeout": 30,
+        }
+        response = await self.invoke(request)
+        response_data = response.get("data")
+        rows = cast(list[dict[str, Any]], response_data) if isinstance(response_data, list) else []
+        query_result: dict[str, Any] = {
+            "request": request,
+            "rows": rows,
+            "total_rows_in_cone": len(rows),
+            "filtered_server_side": True,
+            "fallback_used": False,
+            "warnings": [],
+        }
+        return await self._assemble_image_search_result(
+            query_result,
+            normalized_missions=normalized_missions,
+            rank_mode=normalized_rank_mode,
+            limit=limit,
+            product_limit=product_limit,
+            product_observation_limit=product_observation_limit,
+        )
+
+    async def _assemble_image_search_result(
+        self,
+        query_result: dict[str, Any],
+        *,
+        normalized_missions: list[str],
+        rank_mode: str,
+        limit: int,
+        product_limit: int,
+        product_observation_limit: int,
+    ) -> MastImageSearchResult:
+        normalized_rank_mode = rank_mode
         rows = query_result["rows"]
         science_rows = [row for row in rows if _is_science_like_row(row)]
         selected_rows = science_rows or rows
@@ -510,6 +585,13 @@ class MastConnector:
                 with urlopen(request, timeout=self.timeout_seconds) as response:
                     raw = response.read()
                 decoded = json.loads(raw.decode("utf-8"))
+                if not isinstance(decoded, dict):
+                    raise AstroLensError(
+                        ErrorCode.SOURCE_UNAVAILABLE,
+                        "MAST returned a non-object JSON payload.",
+                        retryable=True,
+                        details={"source": self.name},
+                    )
                 status = decoded.get("status")
                 if status and status != "COMPLETE":
                     raise AstroLensError(
@@ -517,13 +599,6 @@ class MastConnector:
                         f"MAST query did not complete: {status} {decoded.get('msg') or ''}".strip(),
                         retryable=True,
                         details={"source": self.name, "status": status},
-                    )
-                if not isinstance(decoded, dict):
-                    raise AstroLensError(
-                        ErrorCode.SOURCE_UNAVAILABLE,
-                        "MAST returned a non-object JSON payload.",
-                        retryable=True,
-                        details={"source": self.name},
                     )
                 return decoded
             except json.JSONDecodeError as exc:

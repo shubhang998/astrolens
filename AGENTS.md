@@ -27,7 +27,8 @@ It does not generate lessons, scripts, creator packs, social posts, or long-form
 - No live external archive calls in unit tests.
 - Route handlers must not call external archives directly; use services/connectors.
 - Every public scientific fact, asset, view, or raw link must carry provenance/citation metadata.
-- Every asset must carry reuse/credit metadata or an explicit `reuse.status = "unknown"` warning.
+- Every numeric public fact must be traceable to a named catalog field or a deterministic function of catalog fields (`Fact.source_fields` + `Fact.derivation`); LLM-authored numeric or scientific claims are forbidden.
+- Every asset must carry reuse/credit metadata or an explicit `reuse.status = "restricted_or_unknown"` warning.
 - MCP tools must be read-only and evidence-focused.
 - Do not add new production dependencies without explaining why.
 - Do not fetch arbitrary user-provided URLs.

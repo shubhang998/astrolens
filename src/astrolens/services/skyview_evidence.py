@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from uuid import uuid4
 
 from astrolens.connectors.skyview import (
@@ -110,14 +111,14 @@ class SkyViewEvidenceService:
             visual_mode=resolved_visual_mode,
         )
         object_slug = normalize_query(live_object.name) or "liveobject"
-        candidate_views = self._views_for_products(
+        views = await self._views_for_products(
             object_slug=object_slug,
             object_name=live_object.name,
             products=result.products,
             size=size,
             stretch=stretch,
+            max_views=max_views,
         )
-        views = candidate_views[:max_views]
         warnings = [
             WarningMessage(
                 code="LIVE_SKYVIEW_WARNING",
@@ -168,7 +169,7 @@ class SkyViewEvidenceService:
         )
         return bundle
 
-    def _views_for_products(
+    async def _views_for_products(
         self,
         *,
         object_slug: str,
@@ -176,12 +177,13 @@ class SkyViewEvidenceService:
         products: list[SkyViewProductSummary],
         size: str,
         stretch: str,
+        max_views: int,
     ) -> list[View]:
-        views: list[View] = []
+        builders = []
         composite_products = _visible_composite_products(products)
         used_source_record_ids: set[str] = set()
         if len(composite_products) >= 3:
-            views.append(
+            builders.append(
                 self._composite_view_for_products(
                     object_slug=object_slug,
                     object_name=object_name,
@@ -196,7 +198,7 @@ class SkyViewEvidenceService:
         for product in products:
             if product.source_record_id in used_source_record_ids:
                 continue
-            views.append(
+            builders.append(
                 self._view_for_product(
                     object_slug=object_slug,
                     object_name=object_name,
@@ -205,9 +207,11 @@ class SkyViewEvidenceService:
                     stretch=stretch,
                 )
             )
-        return views
+        # Only render views that will be returned; renders run concurrently in
+        # worker threads so they never block the event loop.
+        return list(await asyncio.gather(*builders[:max_views]))
 
-    def _composite_view_for_products(
+    async def _composite_view_for_products(
         self,
         *,
         object_slug: str,
@@ -221,7 +225,8 @@ class SkyViewEvidenceService:
             self._data_product_for_skyview_product(observation_id, product)
             for product in products
         ]
-        render_result = self.renderer.render(
+        render_result = await asyncio.to_thread(
+            self.renderer.render,
             FitsRenderRequest(
                 object_id=f"skyview:{object_slug}:visible-rgb",
                 products=[
@@ -276,7 +281,7 @@ class SkyViewEvidenceService:
             ),
         )
 
-    def _view_for_product(
+    async def _view_for_product(
         self,
         *,
         object_slug: str,
@@ -287,7 +292,8 @@ class SkyViewEvidenceService:
     ) -> View:
         observation_id = f"obs:skyview:{object_slug}:{normalize_query(product.survey)}"
         data_product = self._data_product_for_skyview_product(observation_id, product)
-        render_result = self.renderer.render(
+        render_result = await asyncio.to_thread(
+            self.renderer.render,
             FitsRenderRequest(
                 object_id=f"skyview:{object_slug}",
                 products=[SourceFitsProduct.from_data_product(data_product)],
