@@ -162,6 +162,23 @@ Interactive docs:
 http://127.0.0.1:8000/docs
 ```
 
+## Deploy (stable developer instance)
+
+The repo ships a [render.yaml](render.yaml) blueprint. One-time setup: sign in
+at render.com with GitHub, choose New + Blueprint, select this repository, and
+deploy. Every push to `main` then auto-deploys to a stable
+`https://<name>.onrender.com` URL; use `https://<name>.onrender.com/mcp` as
+the MCP connector URL in ChatGPT (no authentication). The blueprint binds
+Render's assigned port and sets `ASTROLENS_PUBLIC_BASE_URL` to the service's
+own URL so rendered-image links and the gallery widget CSP use the deploy
+domain. The Docker image includes the `skyview` extra, so live SkyView
+rendering works in the container.
+
+Notes: the blueprint uses the `starter` plan so the service stays warm (the
+free plan sleeps after idle and cold-starts too slowly for MCP tool calls);
+its 512 MB RAM comfortably covers SkyView cutout rendering, but very large
+HST/JWST FITS composites may need a bigger instance.
+
 ## Test
 
 ```bash
