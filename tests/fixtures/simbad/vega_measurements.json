@@ -1,0 +1,52 @@
+{
+  "metadata": [
+    {"name": "main_id"},
+    {"name": "otype"},
+    {"name": "ra"},
+    {"name": "dec"},
+    {"name": "plx_value"},
+    {"name": "plx_err"},
+    {"name": "plx_bibcode"},
+    {"name": "rvz_redshift"},
+    {"name": "rvz_radvel"},
+    {"name": "rvz_type"},
+    {"name": "rvz_bibcode"},
+    {"name": "morph_type"},
+    {"name": "morph_bibcode"},
+    {"name": "galdim_majaxis"},
+    {"name": "galdim_minaxis"},
+    {"name": "galdim_bibcode"},
+    {"name": "sp_type"},
+    {"name": "sp_bibcode"},
+    {"name": "nbref"},
+    {"name": "V"},
+    {"name": "B"},
+    {"name": "K"}
+  ],
+  "data": [
+    [
+      "* alf Lyr",
+      "dS*",
+      279.23473479,
+      38.78368896,
+      130.23,
+      0.36,
+      "2007A&A...474..653V",
+      null,
+      -20.6,
+      "v",
+      "2006AstL...32..759G",
+      null,
+      null,
+      null,
+      null,
+      null,
+      "A0Va",
+      "2003AJ....126.2048G",
+      2559,
+      0.03,
+      0.03,
+      0.13
+    ]
+  ]
+}

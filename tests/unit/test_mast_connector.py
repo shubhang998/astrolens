@@ -366,6 +366,59 @@ def test_mast_invoke_maps_http_429_to_rate_limited(monkeypatch) -> None:
     assert exc_info.value.details["http_status"] == 429
 
 
+def test_mast_target_name_search_uses_filtered_service_with_upper_target() -> None:
+    class RecordingMastConnector(MastConnector):
+        def __init__(self) -> None:
+            super().__init__()
+            self.payloads: list[dict[str, Any]] = []
+
+        async def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
+            self.payloads.append(payload)
+            return {"status": "COMPLETE", "data": []}
+
+    connector = RecordingMastConnector()
+
+    result = asyncio.run(
+        connector.search_public_images_by_target_name("Saturn", product_limit=0)
+    )
+
+    assert result.observations == []
+    payload = connector.payloads[0]
+    assert payload["service"] == "Mast.Caom.Filtered"
+    filters = {item["paramName"]: item["values"] for item in payload["params"]["filters"]}
+    assert filters["target_name"] == ["SATURN"]
+    assert filters["obs_collection"] == ["HST", "JWST"]
+    assert filters["dataproduct_type"] == ["image"]
+    assert filters["dataRights"] == ["PUBLIC"]
+    assert "position" not in payload["params"]
+
+
+def test_mast_invoke_maps_non_dict_json_to_source_unavailable(monkeypatch) -> None:
+    connector = MastConnector()
+    connector.retry_count = 0
+
+    class FakeResponse:
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'["not", "an", "object"]'
+
+    monkeypatch.setattr(
+        "astrolens.connectors.mast.urlopen",
+        lambda *_args, **_kwargs: FakeResponse(),
+    )
+
+    with pytest.raises(AstroLensError) as exc_info:
+        connector._invoke_sync({"service": "Mast.Caom.Products", "params": {}})
+
+    assert exc_info.value.code == ErrorCode.SOURCE_UNAVAILABLE
+    assert "non-object" in exc_info.value.message
+
+
 def test_mast_search_deduplicates_observation_rows_before_limit() -> None:
     connector = DuplicateFixtureMastConnector()
 

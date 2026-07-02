@@ -138,6 +138,54 @@ SURVEY_SPECS: tuple[SkyViewSurveySpec, ...] = (
         wavelength_nm=214_000_000.0,
         description="wide-coverage 1.4 GHz radio survey useful as a fallback",
     ),
+    SkyViewSurveySpec(
+        survey="WISE 3.4",
+        band_family=BandFamily.INFRARED,
+        wavelength_nm=3_400.0,
+        description="WISE mid-infrared survey useful for warm dust and embedded sources",
+    ),
+    SkyViewSurveySpec(
+        survey="WISE 12",
+        band_family=BandFamily.INFRARED,
+        wavelength_nm=12_000.0,
+        description="WISE mid-infrared survey useful for star-forming dust emission",
+    ),
+    SkyViewSurveySpec(
+        survey="WISE 22",
+        band_family=BandFamily.INFRARED,
+        wavelength_nm=22_000.0,
+        description="WISE mid-infrared survey useful for the coolest dust structures",
+    ),
+    SkyViewSurveySpec(
+        survey="IRIS 100",
+        band_family=BandFamily.INFRARED,
+        wavelength_nm=100_000.0,
+        description="reprocessed IRAS far-infrared survey useful for cold galactic dust",
+    ),
+    SkyViewSurveySpec(
+        survey="Planck 217",
+        band_family=BandFamily.MILLIMETER,
+        wavelength_nm=1_382_000.0,
+        description="Planck 217 GHz survey useful for cold dust and CMB foregrounds",
+    ),
+    SkyViewSurveySpec(
+        survey="Planck 353",
+        band_family=BandFamily.MILLIMETER,
+        wavelength_nm=849_000.0,
+        description="Planck 353 GHz survey useful for polarized dust emission",
+    ),
+    SkyViewSurveySpec(
+        survey="Fermi 5",
+        band_family=BandFamily.GAMMA,
+        wavelength_nm=1.2e-6,
+        description="Fermi LAT >1 GeV gamma-ray survey useful for the most energetic sources",
+    ),
+    SkyViewSurveySpec(
+        survey="Halpha",
+        band_family=BandFamily.VISIBLE,
+        wavelength_nm=656.3,
+        description="all-sky hydrogen-alpha composite useful for emission nebulae",
+    ),
 )
 
 DEFAULT_SURVEY_NAMES_BY_BAND: dict[BandFamily, tuple[str, ...]] = {
@@ -146,6 +194,8 @@ DEFAULT_SURVEY_NAMES_BY_BAND: dict[BandFamily, tuple[str, ...]] = {
     BandFamily.ULTRAVIOLET: ("GALEX Near UV",),
     BandFamily.XRAY: ("RASS-Cnt Broad",),
     BandFamily.RADIO: ("VLA FIRST (1.4 GHz)",),
+    BandFamily.MILLIMETER: ("Planck 217",),
+    BandFamily.GAMMA: ("Fermi 5",),
 }
 
 SURVEY_SPECS_BY_NAME = {
@@ -218,7 +268,15 @@ class SkyViewConnector:
     ) -> SkyViewSearchResult:
         """Return generated public FITS URLs for bounded surveys around coordinates."""
 
-        resolved_visual_mode = coerce_visual_mode(visual_mode)
+        try:
+            resolved_visual_mode = coerce_visual_mode(visual_mode)
+        except ValueError as exc:
+            raise AstroLensError(
+                ErrorCode.VALIDATION_ERROR,
+                str(exc),
+                retryable=False,
+                details={"source": self.name, "visual_mode": str(visual_mode)},
+            ) from exc
         visual_mode_value = resolved_visual_mode.value
         specs = survey_specs_for_request(bands=bands, surveys=surveys)
         if not specs:
@@ -274,13 +332,29 @@ class SkyViewConnector:
             ) from exc
 
         warnings: list[str] = []
+        paired: list[tuple[SkyViewSurveySpec, str]] = list(
+            zip(specs, image_urls, strict=False)
+        )
         if len(image_urls) != len(specs):
+            # Positional pairing is only trustworthy when every survey returned a
+            # URL. On mismatch, re-query each survey alone so a missing survey can
+            # never shift another survey's FITS onto the wrong provenance record.
             warnings.append(
-                "SkyView returned a different number of generated products than requested."
+                "SkyView returned a different number of generated products than "
+                "requested; surveys were re-queried individually."
+            )
+            paired = await self._image_urls_per_survey(
+                specs=specs,
+                ra_deg=ra_deg,
+                dec_deg=dec_deg,
+                radius_deg=radius_deg,
+                pixels=pixels,
+                cache=cache,
+                warnings=warnings,
             )
 
         products: list[SkyViewProductSummary] = []
-        for spec, url in zip(specs, image_urls, strict=False):
+        for spec, url in paired:
             normalized_url = str(url)
             if not normalized_url.startswith(("http://", "https://")):
                 warnings.append(f"SkyView returned a non-public URL for {spec.survey}.")
@@ -316,6 +390,45 @@ class SkyViewConnector:
             warnings.append("SkyView returned no public generated FITS URLs.")
 
         return SkyViewSearchResult(request=request, products=products, warnings=warnings)
+
+    async def _image_urls_per_survey(
+        self,
+        *,
+        specs: list[SkyViewSurveySpec],
+        ra_deg: float,
+        dec_deg: float,
+        radius_deg: float,
+        pixels: int,
+        cache: bool,
+        warnings: list[str],
+    ) -> list[tuple[SkyViewSurveySpec, str]]:
+        """Query one survey at a time so each URL is unambiguously attributed."""
+
+        async def fetch(spec: SkyViewSurveySpec) -> list[str]:
+            try:
+                return await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self._get_image_list,
+                        ra_deg=ra_deg,
+                        dec_deg=dec_deg,
+                        radius_deg=radius_deg,
+                        surveys=[spec.survey],
+                        pixels=pixels,
+                        cache=cache,
+                    ),
+                    timeout=self.timeout_seconds + 5.0,
+                )
+            except Exception:
+                return []
+
+        results = await asyncio.gather(*(fetch(spec) for spec in specs))
+        paired: list[tuple[SkyViewSurveySpec, str]] = []
+        for spec, urls in zip(specs, results, strict=True):
+            if not urls:
+                warnings.append(f"SkyView returned no generated FITS for {spec.survey}.")
+                continue
+            paired.append((spec, str(urls[0])))
+        return paired
 
     def _get_image_list(
         self,

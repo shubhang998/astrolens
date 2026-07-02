@@ -1,8 +1,13 @@
 import asyncio
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from astrolens.connectors.base import ResolvedObjectCandidate
 from astrolens.connectors.sesame import SesameConnector
+from astrolens.core.enums import ErrorCode
+from astrolens.core.errors import AstroLensError
 from astrolens.services.live_ingestion import LiveIngestionService
 from astrolens.services.repository import EvidenceRepository
 
@@ -24,6 +29,44 @@ def test_sesame_fixture_parses_to_resolved_object_candidate() -> None:
     assert candidate.ra_deg == 187.70593077
     assert candidate.dec_deg == 12.39112325
     assert candidate.raw_metadata["redshift"] == "0.00420"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"this is not xml at all <<<",
+        (
+            b"<Sesame><Resolver name='S=Simbad'><oname>M 87</oname>"
+            b"<jradeg>not-a-number</jradeg><jdedeg>12.39</jdedeg></Resolver></Sesame>"
+        ),
+        (
+            b"<Sesame><Resolver name='S=Simbad'><oname>M 87</oname>"
+            b"<jradeg>721.5</jradeg><jdedeg>12.39</jdedeg></Resolver></Sesame>"
+        ),
+    ],
+)
+def test_sesame_unparseable_response_maps_to_source_unavailable(monkeypatch, body) -> None:
+    class FakeResponse:
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return body
+
+    monkeypatch.setattr(
+        "astrolens.connectors.sesame.urlopen",
+        lambda *_args, **_kwargs: FakeResponse(),
+    )
+    connector = SesameConnector()
+
+    with pytest.raises(AstroLensError) as exc_info:
+        asyncio.run(connector.resolve_object("M87"))
+
+    assert exc_info.value.code == ErrorCode.SOURCE_UNAVAILABLE
+    assert exc_info.value.retryable is True
 
 
 class FakeSesameConnector:

@@ -1,0 +1,52 @@
+{
+  "metadata": [
+    {"name": "main_id"},
+    {"name": "otype"},
+    {"name": "ra"},
+    {"name": "dec"},
+    {"name": "plx_value"},
+    {"name": "plx_err"},
+    {"name": "plx_bibcode"},
+    {"name": "rvz_redshift"},
+    {"name": "rvz_radvel"},
+    {"name": "rvz_type"},
+    {"name": "rvz_bibcode"},
+    {"name": "morph_type"},
+    {"name": "morph_bibcode"},
+    {"name": "galdim_majaxis"},
+    {"name": "galdim_minaxis"},
+    {"name": "galdim_bibcode"},
+    {"name": "sp_type"},
+    {"name": "sp_bibcode"},
+    {"name": "nbref"},
+    {"name": "V"},
+    {"name": "B"},
+    {"name": "K"}
+  ],
+  "data": [
+    [
+      "M  87",
+      "AGN",
+      187.70593077,
+      12.39112325,
+      null,
+      null,
+      null,
+      0.00428,
+      1284.0,
+      "z",
+      "2011MNRAS.413..813C",
+      "E",
+      "2019ApJ...875L...1E",
+      8.3,
+      6.6,
+      "2003AJ....125..525J",
+      null,
+      null,
+      7195,
+      8.6,
+      9.59,
+      5.27
+    ]
+  ]
+}
