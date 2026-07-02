@@ -19,16 +19,24 @@ from itertools import combinations
 from pathlib import Path
 from typing import Any, Literal, cast
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
 from pydantic import Field
 
 from astrolens.core.models import AstroLensModel, DataProduct
 
-RENDER_PIPELINE_VERSION = "fits-render:v12"
+RENDER_PIPELINE_VERSION = "fits-render:v13"
 DEFAULT_RENDER_CACHE_DIR = ".astrolens-cache/renders"
 DEFAULT_MAX_SOURCE_FILE_MB = 300.0
+# Hosts (matched by registered-domain suffix) the renderer may download FITS
+# payloads from. Extend at deploy time with ASTROLENS_RENDER_URL_ALLOWLIST
+# (comma-separated suffixes) rather than widening this default.
+DEFAULT_ALLOWED_URL_HOST_SUFFIXES = (
+    "stsci.edu",
+    "gsfc.nasa.gov",
+)
+RENDER_URL_ALLOWLIST_ENV = "ASTROLENS_RENDER_URL_ALLOWLIST"
 SUPPORTED_FITS_FORMATS = {"fit", "fits", "fit.gz", "fits.gz"}
 REJECTED_PRODUCT_TYPES = {"catalog", "event", "info", "preview", "raw", "spectrum", "spectra"}
 UNCALIBRATED_TOKENS = {"raw", "uncal", "uncalibrated"}
@@ -172,6 +180,10 @@ class FitsRenderRequest(AstroLensModel):
     height: int | None = Field(default=None, gt=0)
     stretch: StretchMode = "asinh"
     max_source_file_mb: float | None = Field(default=DEFAULT_MAX_SOURCE_FILE_MB, gt=0.0)
+    # When True the caller has already chosen exactly the products to composite
+    # (e.g. one per wavelength band across archives); skip visit-coherence
+    # grouping and map channels purely by wavelength.
+    preselected: bool = False
 
 
 class RenderChannel(AstroLensModel):
@@ -223,7 +235,9 @@ class FitsRenderResult(AstroLensModel):
     status: RenderStatus
     asset_id: str | None = None
     asset_url: str | None = None
-    file_path: str | None = None
+    # Local cache path for in-process consumers; excluded so API/MCP responses
+    # never expose server filesystem layout.
+    file_path: str | None = Field(default=None, exclude=True)
     cache_key: str | None = None
     recipe: RenderRecipe | None = None
     dependencies: FitsRendererDependencies = Field(default_factory=FitsRendererDependencies)
@@ -250,6 +264,8 @@ class FitsRenderer:
         cache_dir: str | Path | None = None,
         public_base_url: str | None = None,
         timeout_seconds: float = 60.0,
+        allowed_url_host_suffixes: tuple[str, ...] | None = None,
+        allow_file_urls: bool = False,
     ) -> None:
         self.dependencies = dependencies
         self.cache_dir = Path(
@@ -257,6 +273,12 @@ class FitsRenderer:
         )
         self.public_base_url = public_base_url or os.getenv("ASTROLENS_PUBLIC_BASE_URL")
         self.timeout_seconds = timeout_seconds
+        self.allowed_url_host_suffixes = (
+            allowed_url_host_suffixes
+            if allowed_url_host_suffixes is not None
+            else _configured_url_host_suffixes()
+        )
+        self.allow_file_urls = allow_file_urls
 
     def create_recipe(self, request: FitsRenderRequest) -> RenderRecipe:
         """Create a deterministic render recipe for eligible calibrated FITS products."""
@@ -381,7 +403,6 @@ class FitsRenderer:
             return FitsRenderResult(
                 status="unsupported",
                 asset_id=active_recipe.asset_id,
-                asset_url=self._asset_url(self._output_path(active_recipe)),
                 cache_key=active_recipe.cache_key,
                 recipe=active_recipe,
                 dependencies=dependencies,
@@ -392,7 +413,6 @@ class FitsRenderer:
             return FitsRenderResult(
                 status="failed",
                 asset_id=active_recipe.asset_id,
-                asset_url=self._asset_url(self._output_path(active_recipe)),
                 cache_key=active_recipe.cache_key,
                 recipe=active_recipe,
                 dependencies=dependencies,
@@ -429,6 +449,12 @@ class FitsRenderer:
     ) -> bytes:
         if not product.download_url:
             raise ValueError(f"FITS product {product.id} has no download URL.")
+        validate_download_url(
+            product.download_url,
+            product_id=product.id,
+            allowed_host_suffixes=self.allowed_url_host_suffixes,
+            allow_file_urls=self.allow_file_urls,
+        )
         max_mb = request.max_source_file_mb
         if (
             max_mb is not None
@@ -495,6 +521,50 @@ def detect_fits_render_dependencies() -> FitsRendererDependencies:
         numpy=_module_available("numpy"),
         pillow=_module_available("PIL"),
         reproject=_module_available("reproject"),
+    )
+
+
+def _configured_url_host_suffixes() -> tuple[str, ...]:
+    configured = os.getenv(RENDER_URL_ALLOWLIST_ENV, "")
+    extra = tuple(
+        suffix.strip().lower().lstrip(".")
+        for suffix in configured.split(",")
+        if suffix.strip()
+    )
+    return DEFAULT_ALLOWED_URL_HOST_SUFFIXES + extra
+
+
+def validate_download_url(
+    url: str,
+    *,
+    product_id: str,
+    allowed_host_suffixes: tuple[str, ...],
+    allow_file_urls: bool = False,
+) -> None:
+    """Reject download URLs that are not https to a trusted archive host.
+
+    Raises ValueError so callers surface a graceful ``unsupported`` result
+    instead of fetching attacker-controlled schemes or internal hosts.
+    """
+
+    parts = urlsplit(url)
+    scheme = parts.scheme.lower()
+    if scheme == "file":
+        if allow_file_urls:
+            return
+        raise ValueError(f"FITS product {product_id} download URL scheme 'file' is not allowed.")
+    if scheme != "https":
+        raise ValueError(
+            f"FITS product {product_id} download URL must use https, got '{scheme or 'none'}'."
+        )
+    host = (parts.hostname or "").lower()
+    if not host:
+        raise ValueError(f"FITS product {product_id} download URL has no host.")
+    for suffix in allowed_host_suffixes:
+        if host == suffix or host.endswith(f".{suffix}"):
+            return
+    raise ValueError(
+        f"FITS product {product_id} download host '{host}' is not an allowed archive host."
     )
 
 
@@ -671,7 +741,11 @@ def create_render_recipe(request: FitsRenderRequest) -> RenderRecipe:
             + " ".join(sorted(set(reasons)))
         )
 
-    coherent_products = select_coherent_render_products(eligible_products)
+    coherent_products = (
+        eligible_products
+        if request.preselected
+        else select_coherent_render_products(eligible_products)
+    )
     rgb_mapping = rgb_filter_mapping(coherent_products)
     channel_product_ids = {channel.product_id for channel in rgb_mapping.channels}
     source_products = sorted(
@@ -867,9 +941,11 @@ def _dedupe_products(products: list[SourceFitsProduct]) -> list[SourceFitsProduc
 
 
 def _product_cache_payload(product: SourceFitsProduct) -> dict[str, object]:
+    # Key on the stable archive record id when available: generated-cutout URLs
+    # (e.g. SkyView tempspace) change per request and would defeat the cache.
     return {
         "id": product.id,
-        "download_url": product.download_url,
+        "source_ref": product.source_record_id or product.download_url,
         "file_name": product.file_name,
         "file_format": normalize_file_format(product.file_format or product.file_name),
         "calibration_level": product.calibration_level,
@@ -1070,6 +1146,15 @@ def _compose_rgb_image(
         product_id: _fits_payload_to_image(payloads[product_id])
         for product_id in unique_product_ids
     }
+    scale_ratio = pixel_scale_ratio(loaded_images.values())
+    if scale_ratio is not None and scale_ratio > MAX_PIXEL_SCALE_RATIO:
+        caveat = (
+            "Source resolutions differ by about "
+            f"{scale_ratio:.0f}x between channels; fine structure in this "
+            "composite comes from the sharper channel(s)."
+        )
+        if caveat not in recipe.caveats:
+            recipe.caveats.append(caveat)
     aligned_arrays, overlap_fraction = _aligned_channel_arrays(
         recipe,
         loaded_images,
@@ -1246,6 +1331,30 @@ def _box_mean_2d(values: Any, *, radius: int) -> Any:
         + integral[y0[:, None], x0[None, :]]
     )
     return total / float(((2 * radius) + 1) ** 2)
+
+
+MAX_PIXEL_SCALE_RATIO = 4.0
+
+
+def pixel_scale_ratio(images: Any) -> float | None:
+    """Return the max/min pixel-scale ratio across loaded images with WCS."""
+
+    scales: list[float] = []
+    for image in images:
+        if image.wcs is None:
+            continue
+        try:
+            from astropy.wcs.utils import proj_plane_pixel_scales
+
+            plane_scales = proj_plane_pixel_scales(image.wcs)
+            scale = float(abs(plane_scales[0]))
+        except Exception:
+            continue
+        if scale > 0:
+            scales.append(scale)
+    if len(scales) < 2:
+        return None
+    return max(scales) / min(scales)
 
 
 def _fits_payload_to_image(payload: bytes) -> LoadedFitsImage:

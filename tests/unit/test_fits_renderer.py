@@ -1,4 +1,7 @@
+import pytest
+
 from astrolens.services.fits_renderer import (
+    DEFAULT_ALLOWED_URL_HOST_SUFFIXES,
     FitsRenderer,
     FitsRendererDependencies,
     FitsRenderRequest,
@@ -9,6 +12,7 @@ from astrolens.services.fits_renderer import (
     rgb_filter_mapping,
     select_coherent_render_products,
     select_eligible_fits_products,
+    validate_download_url,
 )
 
 
@@ -176,7 +180,7 @@ def test_create_render_recipe_includes_rgb_mapping_dimensions_and_ids() -> None:
 
     recipe = create_render_recipe(request)
 
-    assert recipe.cache_key.startswith("fits-render:v12:")
+    assert recipe.cache_key.startswith("fits-render:v13:")
     assert recipe.asset_id.startswith("asset:fits-render:")
     assert recipe.width == 512
     assert recipe.height == 512
@@ -227,6 +231,7 @@ def test_renderer_writes_cached_png_when_dependencies_are_ready(tmp_path) -> Non
     renderer = FitsRenderer(
         dependencies=FitsRendererDependencies(astropy=True, numpy=True, pillow=True),
         cache_dir=tmp_path / "renders",
+        allow_file_urls=True,
         public_base_url="https://example.org",
     )
     request = FitsRenderRequest(
@@ -278,6 +283,7 @@ def test_renderer_reprojects_misaligned_wcs_channels_before_rgb_composition(tmp_
             reproject=True,
         ),
         cache_dir=tmp_path / "renders",
+        allow_file_urls=True,
     )
 
     result = renderer.render(
@@ -332,6 +338,7 @@ def test_renderer_uses_wcs_from_image_extension_hdu(tmp_path) -> None:
             reproject=True,
         ),
         cache_dir=tmp_path / "renders",
+        allow_file_urls=True,
     )
 
     result = renderer.render(
@@ -369,6 +376,7 @@ def test_renderer_recenters_off_center_signal(tmp_path) -> None:
     renderer = FitsRenderer(
         dependencies=FitsRendererDependencies(astropy=True, numpy=True, pillow=True),
         cache_dir=tmp_path / "renders",
+        allow_file_urls=True,
     )
 
     result = renderer.render(
@@ -486,6 +494,7 @@ def test_renderer_downgrades_to_single_channel_when_rgb_wcs_is_missing(tmp_path)
             reproject=True,
         ),
         cache_dir=tmp_path / "renders",
+        allow_file_urls=True,
     )
 
     result = renderer.render(
@@ -506,6 +515,56 @@ def test_renderer_downgrades_to_single_channel_when_rgb_wcs_is_missing(tmp_path)
     assert "WCS alignment failed" in " ".join(result.recipe.caveats)
 
 
+def test_preselected_request_bypasses_visit_grouping_and_keeps_all_products() -> None:
+    # Cross-archive products share no visit fingerprint; a preselected request
+    # must keep exactly what the caller chose, mapped by wavelength.
+    products = [
+        _product("radio", file_name="skyview_nvss.fits", wavelength_nm=214_000_000.0),
+        _product("xray", file_name="skyview_rass.fits", wavelength_nm=1.2),
+        _product("visible", file_name="hst_f606w_drc.fits", wavelength_nm=606.0),
+    ]
+
+    recipe = create_render_recipe(FitsRenderRequest(products=products, preselected=True))
+
+    assert {product.id for product in recipe.source_products} == {"radio", "xray", "visible"}
+    assert recipe.rgb_mapping.false_color is True
+    assert recipe.rgb_mapping.blue.product_id == "xray"
+    assert recipe.rgb_mapping.green.product_id == "visible"
+    assert recipe.rgb_mapping.red.product_id == "radio"
+
+
+def test_resolution_mismatch_adds_pixel_scale_caveat(tmp_path) -> None:
+    sharp_path = tmp_path / "sharp_f356w_i2d.fits"
+    coarse_path = tmp_path / "coarse_f444w_i2d.fits"
+    _write_wcs_fits(sharp_path, shape=(128, 128), crpix=(64.5, 64.5), scale_arcsec=1.0)
+    _write_wcs_fits(coarse_path, shape=(96, 96), crpix=(48.5, 48.5), scale_arcsec=8.0)
+    renderer = FitsRenderer(
+        dependencies=FitsRendererDependencies(
+            astropy=True,
+            numpy=True,
+            pillow=True,
+            reproject=True,
+        ),
+        cache_dir=tmp_path / "renders",
+        allow_file_urls=True,
+    )
+
+    result = renderer.render(
+        FitsRenderRequest(
+            products=[
+                _local_fits_product("sharp", sharp_path, wavelength_nm=3560),
+                _local_fits_product("coarse", coarse_path, wavelength_nm=4440),
+            ],
+            width=128,
+            height=128,
+            preselected=True,
+        )
+    )
+
+    assert result.recipe is not None
+    assert any("resolutions differ" in caveat.lower() for caveat in result.recipe.caveats)
+
+
 def test_cache_key_and_asset_id_are_stable_for_same_products_in_different_order() -> None:
     products = [
         _product("blue", file_name="hst_f438w_drc.fits", wavelength_nm=438),
@@ -518,3 +577,98 @@ def test_cache_key_and_asset_id_are_stable_for_same_products_in_different_order(
 
     assert first.cache_key == second.cache_key
     assert first.asset_id == second.asset_id
+
+
+def test_cache_key_ignores_volatile_download_urls_for_same_source_record() -> None:
+    """Generated cutout URLs change per request; the archive record id is stable."""
+
+    base = _product("sdssr", file_name="skv_sdssr.fits", wavelength_nm=616)
+    first_recipe = create_render_recipe(
+        FitsRenderRequest(
+            products=[
+                base.model_copy(
+                    update={"download_url": "https://skyview.gsfc.nasa.gov/tempspace/fits/skv111.fits"}
+                )
+            ]
+        )
+    )
+    second_recipe = create_render_recipe(
+        FitsRenderRequest(
+            products=[
+                base.model_copy(
+                    update={"download_url": "https://skyview.gsfc.nasa.gov/tempspace/fits/skv222.fits"}
+                )
+            ]
+        )
+    )
+
+    assert first_recipe.cache_key == second_recipe.cache_key
+    assert first_recipe.asset_id == second_recipe.asset_id
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "file:///etc/passwd",
+        "http://mast.stsci.edu/x.fits",
+        "https://169.254.169.254/latest/meta-data/x.fits",
+        "https://evil.example.com/x.fits",
+        "https://stsci.edu.evil.example/x.fits",
+        "ftp://mast.stsci.edu/x.fits",
+    ],
+)
+def test_validate_download_url_rejects_untrusted_urls(url: str) -> None:
+    with pytest.raises(ValueError):
+        validate_download_url(
+            url,
+            product_id="p1",
+            allowed_host_suffixes=DEFAULT_ALLOWED_URL_HOST_SUFFIXES,
+        )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://mast.stsci.edu/api/v0.1/Download/file?uri=x.fits",
+        "https://skyview.gsfc.nasa.gov/tempspace/fits/skv1.fits",
+        "https://archive.stsci.edu/pub/x.fits",
+    ],
+)
+def test_validate_download_url_allows_trusted_archive_hosts(url: str) -> None:
+    validate_download_url(
+        url,
+        product_id="p1",
+        allowed_host_suffixes=DEFAULT_ALLOWED_URL_HOST_SUFFIXES,
+    )
+
+
+def test_render_refuses_untrusted_download_url(tmp_path) -> None:
+    renderer = FitsRenderer(
+        dependencies=FitsRendererDependencies(astropy=True, numpy=True, pillow=True),
+        cache_dir=tmp_path / "renders",
+    )
+
+    result = renderer.render(
+        FitsRenderRequest(
+            products=[
+                SourceFitsProduct(
+                    id="hostile",
+                    download_url="https://169.254.169.254/x.fits",
+                    file_name="x.fits",
+                    file_format="fits",
+                    product_type="SCIENCE",
+                    calibration_level=3,
+                    file_size_mb=0.01,
+                    wavelength_nm=606,
+                    source_record_id="mast:TEST/product/x.fits",
+                )
+            ],
+            width=64,
+            height=64,
+        )
+    )
+
+    assert result.status == "unsupported"
+    assert result.error is not None and "not an allowed archive host" in result.error
+    assert result.asset_url is None
+    assert "file_path" not in result.model_dump(mode="json")
