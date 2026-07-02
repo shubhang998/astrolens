@@ -14,6 +14,11 @@ from astrolens.core.models import AstroLensModel
 
 PreviewQualityStatus = Literal["ok", "unsupported", "failed"]
 
+# Decoding is the memory hazard, not downloading: an 8MB JPEG of a large
+# mosaic can decode to hundreds of MB of RGB pixels. JPEGs above this pixel
+# count are draft-decoded at reduced scale; other formats are skipped.
+MAX_DECODE_PIXELS = 40_000_000
+
 
 class PreviewImageQuality(AstroLensModel):
     """Compact quality analysis for one JPG/PNG preview image."""
@@ -92,6 +97,23 @@ def assess_preview_image_bytes(
 
     with Image.open(BytesIO(payload)) as image:
         width, height = image.size
+        if width * height > MAX_DECODE_PIXELS:
+            # JPEG supports cheap reduced-scale decoding; draft() mutates the
+            # effective decode size. Anything still oversized after draft
+            # (e.g. giant PNGs) is skipped rather than OOM-decoded.
+            image.draft("RGB", (resize_max, resize_max))
+            effective_width, effective_height = image.size
+            if effective_width * effective_height > MAX_DECODE_PIXELS:
+                return PreviewImageQuality(
+                    status="unsupported",
+                    score=0.5,
+                    width=width,
+                    height=height,
+                    error=(
+                        f"Preview is {width}x{height}; too large to decode "
+                        "safely for pixel scoring."
+                    ),
+                )
         rgb = image.convert("RGB")
         rgb.thumbnail((resize_max, resize_max))
         array = np.asarray(rgb, dtype=np.float32) / 255.0
