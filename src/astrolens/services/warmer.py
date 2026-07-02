@@ -20,6 +20,16 @@ from astrolens.services.repository import repository
 
 logger = logging.getLogger("astrolens.warmer")
 
+# Live progress, surfaced on /v1/health so warm state is observable without
+# platform log access.
+warm_status: dict[str, object] = {
+    "enabled": False,
+    "warmed": 0,
+    "total": 0,
+    "complete": False,
+    "current": None,
+}
+
 WARM_CACHE_ENV = "ASTROLENS_WARM_CACHE"
 # Give the service time to pass health checks and serve first traffic before
 # adding background archive load.
@@ -41,9 +51,14 @@ async def warm_curated_cache(
 ) -> int:
     """Warm hero-call caches for every curated object; returns objects warmed."""
 
+    objects = repository.list_objects()
+    warm_status.update(
+        {"enabled": True, "warmed": 0, "total": len(objects), "complete": False}
+    )
     await asyncio.sleep(start_delay)
     warmed = 0
-    for obj in repository.list_objects():
+    for obj in objects:
+        warm_status["current"] = obj.name
         try:
             # Mirrors ShowcaseService.show_object's bundle request so the
             # SkyView render cache and fact caches are hit by real queries.
@@ -57,11 +72,13 @@ async def warm_curated_cache(
                 size="thumbnail",
             )
             warmed += 1
+            warm_status["warmed"] = warmed
             logger.info("warmed %s (%d)", obj.name, warmed)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - warming must never crash the app
             logger.warning("warm failed for %s: %s", obj.name, exc)
         await asyncio.sleep(spacing)
+    warm_status.update({"complete": True, "current": None})
     logger.info("cache warm complete: %d objects", warmed)
     return warmed
