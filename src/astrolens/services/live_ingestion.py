@@ -63,9 +63,12 @@ class LiveIngestionService:
     def _candidate_to_object(self, candidate: ResolvedObjectCandidate) -> CelestialObject:
         source_url = str(candidate.source_url) if candidate.source_url else None
         slug = normalize_query(candidate.name) or candidate.raw_metadata.get("oid") or uuid4().hex
+        # SIMBAD canonical names pad with alignment spaces ("M   1"); collapse
+        # for display. Identity lookups already whitespace-collapse on retry.
+        display_name = " ".join(candidate.name.split())
         return CelestialObject(
             id=f"astro:object:live:{slug}",
-            name=candidate.name,
+            name=display_name,
             aliases=candidate.aliases,
             type=candidate.object_type,
             coordinates=Coordinates(ra_deg=candidate.ra_deg, dec_deg=candidate.dec_deg),
