@@ -417,8 +417,11 @@ def test_mcp_exposes_gallery_resource_for_chatgpt_apps() -> None:
     assert "make_best_visual" in tools
     assert "render_fits_composite" in tools
     assert "get_visual_provenance" in tools
-    assert evidence_tool["_meta"]["openai/outputTemplate"] == "ui://astrolens/gallery.html"
-    assert evidence_tool["_meta"]["ui"]["resourceUri"] == "ui://astrolens/gallery.html"
+    from astrolens.mcp.gallery_component import GALLERY_URI
+
+    assert evidence_tool["_meta"]["openai/outputTemplate"] == GALLERY_URI
+    assert evidence_tool["_meta"]["ui"]["resourceUri"] == GALLERY_URI
+    assert GALLERY_URI.startswith("ui://astrolens/gallery-")  # content-hashed
 
     resource_response = client.post(
         "/mcp",
@@ -426,7 +429,7 @@ def test_mcp_exposes_gallery_resource_for_chatgpt_apps() -> None:
             "jsonrpc": "2.0",
             "id": 11,
             "method": "resources/read",
-            "params": {"uri": "ui://astrolens/gallery.html"},
+            "params": {"uri": GALLERY_URI},
         },
     )
 

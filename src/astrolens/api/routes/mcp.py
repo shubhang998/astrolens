@@ -221,7 +221,9 @@ async def _handle_request(payload: dict[str, Any], request: Request) -> dict[str
         return {"jsonrpc": "2.0", "id": request_id, "result": {"resources": [GALLERY_RESOURCE]}}
     if method == "resources/read":
         uri = str(payload.get("params", {}).get("uri", ""))
-        if uri == GALLERY_RESOURCE["uri"]:
+        # Any gallery version resolves to the current template: clients with a
+        # stale content-hashed URI still get a working (current) widget.
+        if uri == GALLERY_RESOURCE["uri"] or uri.startswith("ui://astrolens/gallery"):
             return {
                 "jsonrpc": "2.0",
                 "id": request_id,
