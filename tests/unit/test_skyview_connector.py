@@ -295,6 +295,52 @@ def test_skyview_health_is_graceful_without_optional_dependency(monkeypatch) -> 
     assert health.status == SourceHealthStatus.UNAVAILABLE
 
 
+class NoSdssConnector:
+    """Simulates a target outside SDSS coverage: default search returns no
+    visible products; a targeted DSS2 request succeeds."""
+
+    def __init__(self) -> None:
+        self.requests: list[dict[str, Any]] = []
+
+    async def search_generated_fits(self, **kwargs: Any) -> SkyViewSearchResult:
+        self.requests.append(kwargs)
+        if kwargs.get("surveys") == ["DSS2 Blue", "DSS2 Red", "DSS2 IR"]:
+            products = [
+                SkyViewProductSummary(
+                    survey=survey,
+                    band_family=BandFamily.VISIBLE,
+                    wavelength_nm=wavelength,
+                    download_url=f"https://skyview.example.test/{survey.replace(' ', '')}.fits",
+                    source_record_id=f"skyview:{survey.replace(' ', '').lower()}:crab",
+                )
+                for survey, wavelength in (
+                    ("DSS2 Blue", 445.0),
+                    ("DSS2 Red", 658.0),
+                    ("DSS2 IR", 806.0),
+                )
+            ]
+            return SkyViewSearchResult(request=kwargs, products=products)
+        return SkyViewSearchResult(request=kwargs, products=[])
+
+
+def test_visible_composite_falls_back_to_dss2_outside_sdss_coverage() -> None:
+    connector = NoSdssConnector()
+    service = SkyViewEvidenceService(
+        resolver=FakeResolver(),  # type: ignore[arg-type]
+        skyview=connector,  # type: ignore[arg-type]
+        renderer=FakeRenderer(),  # type: ignore[arg-type]
+    )
+
+    bundle = asyncio.run(service.bundle_for_query("M87", pixels=256, max_views=2))
+
+    assert len(connector.requests) == 2
+    assert connector.requests[1]["surveys"] == ["DSS2 Blue", "DSS2 Red", "DSS2 IR"]
+    composite = bundle.views[0]
+    assert composite.id.endswith("visible-rgb")
+    assert len(composite.raw_products) == 3
+    assert any("DSS2" in warning.message for warning in bundle.warnings)
+
+
 def test_skyview_bundle_cache_serves_hits_without_requerying() -> None:
     connector = CountingSkyViewEvidenceConnector()
     service = SkyViewEvidenceService(
