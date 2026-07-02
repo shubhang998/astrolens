@@ -20,4 +20,8 @@ services:
         value: /var/astrolens-cache/renders
       - key: ASTROLENS_WARM_CACHE
         value: "1"
+      # 512MB starter instance: exactly one FITS render at a time, process-wide
+      # (warmer + user calls share this budget). Raise when the plan grows.
+      - key: ASTROLENS_MAX_CONCURRENT_RENDERS
+        value: "1"
     autoDeploy: true

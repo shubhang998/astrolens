@@ -565,6 +565,19 @@ def test_resolution_mismatch_adds_pixel_scale_caveat(tmp_path) -> None:
     assert any("resolutions differ" in caveat.lower() for caveat in result.recipe.caveats)
 
 
+def test_configured_render_slots_parses_and_clamps(monkeypatch) -> None:
+    from astrolens.services.fits_renderer import _configured_render_slots
+
+    monkeypatch.delenv("ASTROLENS_MAX_CONCURRENT_RENDERS", raising=False)
+    assert _configured_render_slots() == 2
+    monkeypatch.setenv("ASTROLENS_MAX_CONCURRENT_RENDERS", "1")
+    assert _configured_render_slots() == 1
+    monkeypatch.setenv("ASTROLENS_MAX_CONCURRENT_RENDERS", "99")
+    assert _configured_render_slots() == 8
+    monkeypatch.setenv("ASTROLENS_MAX_CONCURRENT_RENDERS", "not-a-number")
+    assert _configured_render_slots() == 2
+
+
 def test_tint_for_wavelength_follows_band_conventions() -> None:
     from astrolens.services.fits_renderer import tint_for_wavelength
 

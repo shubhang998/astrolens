@@ -13,6 +13,7 @@ import importlib.util
 import json
 import os
 import re
+import threading
 from dataclasses import dataclass
 from io import BytesIO
 from itertools import combinations
@@ -37,6 +38,27 @@ DEFAULT_ALLOWED_URL_HOST_SUFFIXES = (
     "gsfc.nasa.gov",
 )
 RENDER_URL_ALLOWLIST_ENV = "ASTROLENS_RENDER_URL_ALLOWLIST"
+MAX_CONCURRENT_RENDERS_ENV = "ASTROLENS_MAX_CONCURRENT_RENDERS"
+DEFAULT_MAX_CONCURRENT_RENDERS = 2
+
+
+def _configured_render_slots() -> int:
+    configured = os.getenv(MAX_CONCURRENT_RENDERS_ENV, "")
+    try:
+        parsed = int(configured)
+    except ValueError:
+        return DEFAULT_MAX_CONCURRENT_RENDERS
+    if not configured:
+        return DEFAULT_MAX_CONCURRENT_RENDERS
+    return max(1, min(parsed, 8))
+
+
+# Process-wide chokepoint: every heavy render (any caller — API routes, MCP
+# tools, SkyView views, composites, the cache warmer) holds one slot. Each
+# render keeps FITS payloads plus several numpy working buffers in memory, so
+# per-request bounds are not enough: concurrent requests stacked renders and
+# OOM-killed small instances.
+_RENDER_SLOTS = threading.BoundedSemaphore(_configured_render_slots())
 SUPPORTED_FITS_FORMATS = {"fit", "fits", "fit.gz", "fits.gz"}
 REJECTED_PRODUCT_TYPES = {"catalog", "event", "info", "preview", "raw", "spectrum", "spectra"}
 UNCALIBRATED_TOKENS = {"raw", "uncal", "uncalibrated"}
@@ -355,6 +377,62 @@ class FitsRenderer:
             )
         try:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
+            # Hold a process-wide render slot for the memory-heavy section
+            # (downloads + numpy composition); cache hits above never wait.
+            with _RENDER_SLOTS:
+                return self._render_uncached(
+                    request=request,
+                    recipe=recipe,
+                    dependencies=dependencies,
+                    eligibility=eligibility,
+                    output_path=output_path,
+                )
+        except ValueError as exc:
+            return FitsRenderResult(
+                status="unsupported",
+                asset_id=active_recipe.asset_id,
+                cache_key=active_recipe.cache_key,
+                recipe=active_recipe,
+                dependencies=dependencies,
+                eligibility=eligibility,
+                error=str(exc),
+            )
+        except (HTTPError, URLError, TimeoutError, OSError) as exc:
+            return FitsRenderResult(
+                status="failed",
+                asset_id=active_recipe.asset_id,
+                cache_key=active_recipe.cache_key,
+                recipe=active_recipe,
+                dependencies=dependencies,
+                eligibility=eligibility,
+                error=str(exc),
+            )
+
+    def _render_uncached(
+        self,
+        *,
+        request: FitsRenderRequest,
+        recipe: RenderRecipe,
+        dependencies: FitsRendererDependencies,
+        eligibility: list[ProductEligibility],
+        output_path: Path,
+    ) -> FitsRenderResult:
+        active_recipe = recipe
+        # Another request may have rendered the same recipe while this one
+        # waited for a slot.
+        if output_path.exists():
+            cached_recipe = self._load_cached_recipe(output_path, fallback=active_recipe)
+            return FitsRenderResult(
+                status="complete",
+                asset_id=cached_recipe.asset_id,
+                asset_url=self._asset_url(output_path),
+                file_path=str(output_path),
+                cache_key=cached_recipe.cache_key,
+                recipe=cached_recipe,
+                dependencies=dependencies,
+                eligibility=eligibility,
+            )
+        try:
             payloads = self._download_recipe_products(recipe, request)
             try:
                 rendered = _compose_rgb_image(
