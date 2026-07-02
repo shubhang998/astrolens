@@ -308,7 +308,7 @@ class _FakeCompositeService:
         self.calls: list[str] = []
 
     async def composite_view(
-        self, *, obj: CelestialObject, views: list[View], recipe: Any
+        self, *, obj: CelestialObject, views: list[View], recipe: Any, size: str = "standard"
     ) -> View | None:
         self.calls.append(obj.name)
         return self.view
