@@ -5,11 +5,8 @@ services:
     plan: starter
     region: oregon
     healthCheckPath: /v1/health
-    # Bind Render's assigned port and expose the service's own public URL so
-    # rendered-image links and the widget CSP use the stable deploy domain.
-    dockerCommand: >-
-      sh -c 'ASTROLENS_PUBLIC_BASE_URL=$RENDER_EXTERNAL_URL
-      uvicorn astrolens.api.main:app --host 0.0.0.0 --port $PORT'
+    # The image entrypoint (docker/entrypoint.sh) binds Render's assigned
+    # $PORT and adopts $RENDER_EXTERNAL_URL as the public base URL.
     envVars:
       - key: ASTROLENS_ENV
         value: development
