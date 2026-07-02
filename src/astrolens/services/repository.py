@@ -77,8 +77,17 @@ class EvidenceRepository:
 
         matches: list[CelestialObject] = []
         for obj in self.objects.values():
-            haystack = " ".join([obj.name, obj.type, *obj.aliases]).lower()
-            if query.lower() in haystack or normalized in normalize_query(haystack):
+            fields = [obj.name, obj.type, *obj.aliases]
+            # Match whole fields ("NGC 5128" vs "ngc5128") or within single
+            # words; never across word boundaries, where concatenation creates
+            # false hits (e.g. "vega" inside "active galaxy" -> "activegalaxy").
+            if any(normalized == normalize_query(field) for field in fields):
+                matches.append(obj)
+                continue
+            words = {
+                normalize_query(word) for field in fields for word in field.split()
+            }
+            if any(normalized in word for word in words if word):
                 matches.append(obj)
         return matches[:limit]
 
