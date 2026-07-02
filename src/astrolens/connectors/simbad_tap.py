@@ -27,7 +27,13 @@ from astrolens.core.errors import AstroLensError
 from astrolens.core.models import AstroLensModel, Citation, SourceHealth
 
 SIMBAD_TAP_SYNC_URL = "https://simbad.cds.unistra.fr/simbad/sim-tap/sync"
+SIMBAD_TAP_MIRROR_SYNC_URL = "https://simbad.u-strasbg.fr/simbad/sim-tap/sync"
+# Fixed, trusted endpoints tried in order; the legacy hostname routes past
+# outages of the primary (observed: primary timing out on trivial queries
+# while the legacy host answered; the Harvard mirror's TAP is broken).
+SIMBAD_TAP_SYNC_URLS = (SIMBAD_TAP_SYNC_URL, SIMBAD_TAP_MIRROR_SYNC_URL)
 SIMBAD_TAP_DOCS_URL = "https://simbad.cds.unistra.fr/simbad/sim-tap"
+MEASUREMENTS_CACHE_MAX_ENTRIES = 256
 
 # Curated, bounded category vocabulary mapped to SIMBAD otype codes. The
 # ``otypes`` table is hierarchical, so e.g. 'G' also matches Seyfert galaxies.
@@ -164,18 +170,21 @@ def category_adql(
         clauses.append(f"f.V <= {float(magnitude_limit):.2f}")
     if sample_modulus is not None and sample_residue is not None:
         clauses.append(f"MOD(b.oid, {int(sample_modulus)}) = {int(sample_residue)}")
-    # SIMBAD's ADQL parser rejects table-qualified columns in ORDER BY; both
-    # oid and nbref are unambiguous (only `basic` carries them in this join).
-    order = "ORDER BY oid" if sample_modulus is not None else "ORDER BY nbref DESC"
-    return (
+    query = (
         f"SELECT TOP {bounded_limit} b.main_id, b.otype, b.ra, b.dec, "
         "b.rvz_redshift, b.galdim_majaxis, f.V "
         "FROM basic AS b "
         "JOIN otypes AS ot ON ot.oidref = b.oid "
         "LEFT JOIN allfluxes AS f ON f.oidref = b.oid "
-        f"WHERE {' AND '.join(clauses)} "
-        f"{order}"
+        f"WHERE {' AND '.join(clauses)}"
     )
+    if sample_modulus is None:
+        # SIMBAD's ADQL parser rejects table-qualified columns in ORDER BY;
+        # nbref is unambiguous (only `basic` carries it in this join).
+        # Sampled queries stay unordered so the server can stream the first
+        # matching rows instead of sorting the whole category.
+        query += " ORDER BY nbref DESC"
+    return query
 
 
 def otype_for_category(category: str) -> str:
@@ -204,6 +213,7 @@ class SimbadTapConnector:
     def __init__(self, client: Any | None = None, *, timeout_seconds: float = 30.0) -> None:
         self.client = client
         self.timeout_seconds = timeout_seconds
+        self._measurements_cache: dict[str, SimbadMeasurements | None] = {}
 
     async def healthcheck(self) -> SourceHealth:
         started = time.monotonic()
@@ -229,14 +239,18 @@ class SimbadTapConnector:
         one whitespace-collapsed retry covers minor spacing drift.
         """
 
+        if main_id in self._measurements_cache:
+            return self._measurements_cache[main_id]
         rows = await self._rows(measurements_adql(main_id))
         if not rows:
             collapsed = " ".join(main_id.split())
             if collapsed != main_id:
                 rows = await self._rows(measurements_adql(collapsed))
-        if not rows:
-            return None
-        return _measurements_from_row(rows[0])
+        measurements = _measurements_from_row(rows[0]) if rows else None
+        if len(self._measurements_cache) >= MEASUREMENTS_CACHE_MAX_ENTRIES:
+            self._measurements_cache.pop(next(iter(self._measurements_cache)))
+        self._measurements_cache[main_id] = measurements
+        return measurements
 
     async def search_category(
         self,
@@ -313,24 +327,40 @@ class SimbadTapConnector:
                 "query": adql,
             }
         ).encode("ascii")
-        request = Request(
-            SIMBAD_TAP_SYNC_URL,
-            data=body,
-            headers={
-                "Content-Type": "application/x-www-form-urlencoded",
-                "User-Agent": "AstroLens/0.1 limited-live-simbad-tap",
-            },
-            method="POST",
-        )
-        try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:
-                raw = response.read(8_000_000)
-        except (HTTPError, URLError, TimeoutError, OSError) as exc:
+        raw: bytes | None = None
+        last_error: Exception | None = None
+        for endpoint in SIMBAD_TAP_SYNC_URLS:
+            request = Request(
+                endpoint,
+                data=body,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "User-Agent": "AstroLens/0.1 limited-live-simbad-tap",
+                },
+                method="POST",
+            )
+            try:
+                with urlopen(request, timeout=self.timeout_seconds) as response:
+                    raw = response.read(8_000_000)
+                break
+            except HTTPError as exc:
+                if exc.code < 500:
+                    # 4xx (e.g. bad ADQL) is identical on every mirror.
+                    raise connector_error_from_exception(
+                        exc,
+                        source=self.name,
+                        message="SIMBAD TAP query failed.",
+                    ) from exc
+                last_error = exc
+            except (URLError, TimeoutError, OSError) as exc:
+                last_error = exc
+        if raw is None:
+            assert last_error is not None
             raise connector_error_from_exception(
-                exc,
+                last_error,
                 source=self.name,
-                message="SIMBAD TAP query failed.",
-            ) from exc
+                message="SIMBAD TAP query failed on all mirrors.",
+            ) from last_error
         try:
             decoded = json.loads(raw.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:

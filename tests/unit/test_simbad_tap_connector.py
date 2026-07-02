@@ -70,7 +70,8 @@ def test_category_adql_includes_cone_magnitude_and_sampling_clauses() -> None:
     assert "CIRCLE('ICRS', 187.705930, 12.391120, 5.0000)" in adql
     assert "f.V <= 18.00" in adql
     assert "MOD(b.oid, 37) = 14" in adql
-    assert adql.endswith("ORDER BY oid")
+    # Sampled queries stay unordered so SIMBAD can stream rows cheaply.
+    assert "ORDER BY" not in adql
 
 
 def test_category_adql_clamps_limit_and_defaults_to_reference_ordering() -> None:
@@ -220,6 +221,72 @@ def test_timeout_maps_to_source_timeout(monkeypatch) -> None:
         asyncio.run(connector.fetch_measurements("M  87"))
 
     assert exc_info.value.code == ErrorCode.SOURCE_TIMEOUT
+
+
+def test_query_fails_over_to_mirror_when_primary_is_down(monkeypatch) -> None:
+    import json as json_module
+
+    from astrolens.connectors.simbad_tap import (
+        SIMBAD_TAP_MIRROR_SYNC_URL,
+        SIMBAD_TAP_SYNC_URL,
+    )
+
+    attempted: list[str] = []
+
+    class FakeResponse:
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            return None
+
+        def read(self, limit: int = -1) -> bytes:
+            return json_module.dumps(_fixture("m87_measurements.json")).encode()
+
+    def fake_urlopen(request: Any, **_kwargs: Any) -> FakeResponse:
+        attempted.append(request.full_url)
+        if request.full_url == SIMBAD_TAP_SYNC_URL:
+            raise TimeoutError("primary down")
+        return FakeResponse()
+
+    monkeypatch.setattr("astrolens.connectors.simbad_tap.urlopen", fake_urlopen)
+    connector = SimbadTapConnector()
+
+    measurements = asyncio.run(connector.fetch_measurements("M  87"))
+
+    assert measurements is not None
+    assert measurements.main_id == "M  87"
+    assert attempted == [SIMBAD_TAP_SYNC_URL, SIMBAD_TAP_MIRROR_SYNC_URL]
+
+
+def test_http_400_does_not_fail_over(monkeypatch) -> None:
+    from email.message import Message
+    from urllib.error import HTTPError
+
+    attempted: list[str] = []
+
+    def fake_urlopen(request: Any, **_kwargs: Any) -> None:
+        attempted.append(request.full_url)
+        raise HTTPError(request.full_url, 400, "Bad Request", Message(), None)
+
+    monkeypatch.setattr("astrolens.connectors.simbad_tap.urlopen", fake_urlopen)
+    connector = SimbadTapConnector()
+
+    with pytest.raises(AstroLensError):
+        asyncio.run(connector.fetch_measurements("M  87"))
+
+    assert len(attempted) == 1  # bad ADQL is identical on every mirror
+
+
+def test_measurements_are_cached_per_identifier() -> None:
+    client = FakeTapClient([_fixture("m87_measurements.json")])
+    connector = SimbadTapConnector(client=client)
+
+    first = asyncio.run(connector.fetch_measurements("M  87"))
+    second = asyncio.run(connector.fetch_measurements("M  87"))
+
+    assert first is not None and second is not None
+    assert len(client.queries) == 1
 
 
 def test_healthcheck_never_raises(monkeypatch) -> None:

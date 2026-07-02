@@ -130,13 +130,22 @@ class ShowcaseService:
                 center.coordinates.dec_deg,
                 min(radius_deg or 5.0, MAX_FIND_RADIUS_DEG),
             )
-        result = await self.simbad.search_category(
-            otype=otype,
-            cone=cone,
-            magnitude_limit=magnitude_limit,
-            limit=max(1, min(limit, MAX_FIND_RESULTS)),
-            random_sample=random_sample,
-        )
+        try:
+            result = await self.simbad.search_category(
+                otype=otype,
+                cone=cone,
+                magnitude_limit=magnitude_limit,
+                limit=max(1, min(limit, MAX_FIND_RESULTS)),
+                random_sample=random_sample,
+            )
+        except AstroLensError as exc:
+            if exc.code not in {
+                ErrorCode.SOURCE_TIMEOUT,
+                ErrorCode.SOURCE_UNAVAILABLE,
+                ErrorCode.RATE_LIMITED,
+            }:
+                raise
+            return self._curated_category_fallback(category, otype, exc, limit=limit)
         return {
             "category": category,
             "otype": otype,
@@ -149,6 +158,41 @@ class ShowcaseService:
             ],
             "query_adql": result.query_adql,
             "warnings": result.warnings,
+        }
+
+    def _curated_category_fallback(
+        self,
+        category: str,
+        otype: str,
+        exc: AstroLensError,
+        *,
+        limit: int,
+    ) -> dict[str, Any]:
+        """Serve curated seed objects of the category when the live catalog is down."""
+
+        matches = repository.find_objects(category, limit=max(1, min(limit, MAX_FIND_RESULTS)))
+        return {
+            "category": category,
+            "otype": otype,
+            "hits": [
+                {
+                    "main_id": obj.name,
+                    "otype": obj.type,
+                    "ra_deg": obj.coordinates.ra_deg,
+                    "dec_deg": obj.coordinates.dec_deg,
+                    "followup": f'show_object {{"object": "{obj.name}"}}',
+                }
+                for obj in matches
+                if not obj.ephemeris_object
+            ],
+            "query_adql": None,
+            "warnings": [
+                (
+                    "Live SIMBAD catalog search is unavailable "
+                    f"({exc.message}); returned curated well-known examples instead of a "
+                    "live catalog result. Random sampling was not applied."
+                ),
+            ],
         }
 
     async def _resolve(self, query: str) -> CelestialObject:
