@@ -65,6 +65,10 @@ class ShowcaseService:
             pixels=pixels,
             composite=True,
             include_facts=True,
+            # SkyView cutouts are ~512px native; rendering at thumbnail size
+            # skips pointless upscaling and keeps hero calls fast enough for
+            # proxy time limits on small instances.
+            size="thumbnail",
         )
         hero = bundle.views[0] if bundle.views else None
         panels = _band_panels(bundle.views[1:] if hero else bundle.views)

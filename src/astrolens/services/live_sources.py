@@ -73,6 +73,7 @@ class LiveSourceEvidenceService:
         pixels: int | None = None,
         include_facts: bool = False,
         composite: bool = False,
+        size: str = "standard",
     ) -> EvidenceBundle:
         facts_task = (
             asyncio.ensure_future(self._facts_for_query(query)) if include_facts else None
@@ -89,9 +90,10 @@ class LiveSourceEvidenceService:
                 sources=sources,
                 skyview_surveys=skyview_surveys,
                 pixels=pixels,
+                size=size,
             )
             if composite:
-                bundle = await self._with_composite_view(bundle)
+                bundle = await self._with_composite_view(bundle, size=size)
         except BaseException:
             if facts_task is not None:
                 facts_task.cancel()
@@ -164,7 +166,9 @@ class LiveSourceEvidenceService:
             )
         return bundle.model_copy(update={"warnings": warnings})
 
-    async def _with_composite_view(self, bundle: EvidenceBundle) -> EvidenceBundle:
+    async def _with_composite_view(
+        self, bundle: EvidenceBundle, *, size: str = "standard"
+    ) -> EvidenceBundle:
         """Prepend a cross-source composite view when the recipe can be filled."""
 
         recipe = recipe_for_object_type(bundle.object.type)
@@ -173,6 +177,7 @@ class LiveSourceEvidenceService:
                 obj=bundle.object,
                 views=bundle.views,
                 recipe=recipe,
+                size=size,
             )
         except AstroLensError as exc:
             return bundle.model_copy(
@@ -239,6 +244,7 @@ class LiveSourceEvidenceService:
         sources: tuple[str, ...],
         skyview_surveys: list[str] | None,
         pixels: int | None,
+        size: str = "standard",
     ) -> EvidenceBundle:
         normalized_sources = normalize_live_sources(sources)
         if is_ephemeris_target(query):
@@ -272,6 +278,7 @@ class LiveSourceEvidenceService:
                 surveys=skyview_surveys,
                 pixels=skyview_pixels,
                 visual_mode=preset.mode,
+                size=size,
             )
 
         mast_task = self.mast.bundle_for_query(
@@ -290,6 +297,7 @@ class LiveSourceEvidenceService:
             surveys=skyview_surveys,
             pixels=skyview_pixels,
             visual_mode=preset.mode,
+            size=size,
         )
         mast_bundle, skyview_bundle = await asyncio.gather(mast_task, skyview_task)
         views = rank_views_by_source_quality(

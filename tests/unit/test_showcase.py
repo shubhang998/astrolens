@@ -195,6 +195,7 @@ def test_show_object_prefers_composite_hero_and_bands_panels() -> None:
 
     assert live.calls[0]["composite"] is True
     assert live.calls[0]["include_facts"] is True
+    assert live.calls[0]["size"] == "thumbnail"
     assert payload["hero_view"]["id"] == "view:composite"
     panel_bands = [panel["band_family"] for panel in payload["panels"]]
     assert panel_bands == ["visible", "xray", "radio", "infrared"]  # one per band
