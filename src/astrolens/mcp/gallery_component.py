@@ -334,7 +334,7 @@ GALLERY_HTML = """
       const validation = validationLabel(item.targetValidation);
       card.innerHTML = `
         <div class="imageWrap">
-          <img alt="${escapeHtml(item.label)}" src="${escapeAttribute(item.url)}" loading="lazy" />
+          <img alt="${escapeHtml(item.label)}" src="${escapeAttribute(safeUrl(item.url))}" loading="lazy" />
           <div class="quality">${escapeHtml(quality)}</div>
         </div>
         <div class="body">
@@ -346,8 +346,8 @@ GALLERY_HTML = """
             <div>${escapeHtml(validation)}</div>
           </div>
           <div class="links">
-            <a href="${escapeAttribute(item.url)}" target="_blank" rel="noreferrer">Preview</a>
-            <a href="${escapeAttribute(item.sourceUrl)}" target="_blank" rel="noreferrer">Source product</a>
+            <a href="${escapeAttribute(safeUrl(item.url))}" target="_blank" rel="noreferrer">Preview</a>
+            <a href="${escapeAttribute(safeUrl(item.sourceUrl))}" target="_blank" rel="noreferrer">Source product</a>
           </div>
         </div>`;
       return card;
@@ -389,6 +389,14 @@ GALLERY_HTML = """
 
     function escapeAttribute(value) {
       return escapeHtml(value).replace(/`/g, "&#096;");
+    }
+
+    function safeUrl(value) {
+      const url = String(value || "");
+      if (url.startsWith("https://") || url.startsWith("http://") || url.startsWith("/")) {
+        return url;
+      }
+      return "about:blank";
     }
 
     window.addEventListener("openai:set_globals", render);

@@ -1,5 +1,6 @@
 """Read-only MCP tool implementations backed by AstroLens services."""
 
+import asyncio
 from typing import Any
 
 from astrolens.core.enums import BandFamily, ErrorCode, VisualMode
@@ -7,6 +8,8 @@ from astrolens.core.errors import AstroLensError
 from astrolens.mcp.gallery_component import GALLERY_URI
 from astrolens.mcp.hardening import (
     MCP_MAX_COMPARE_VIEWS_PER_BAND,
+    MCP_MAX_FIND_RADIUS_DEG,
+    MCP_MAX_FIND_RESULTS,
     MCP_MAX_VIEWS,
     MCP_OBSERVATION_LIMIT,
     MCP_SEARCH_LIMIT,
@@ -24,6 +27,31 @@ from astrolens.services.live_sources import live_source_evidence_service
 from astrolens.services.ranking import rank_views
 from astrolens.services.repository import repository
 from astrolens.services.resolver import resolver_service
+from astrolens.services.showcase import showcase_service
+
+
+class UnknownMcpToolError(ValueError):
+    """Raised when an MCP tools/call names a tool this server does not expose."""
+
+
+def _resolved_object_id(resolved: Any, query: str) -> str:
+    """Return the resolved object id, refusing to silently pick among ambiguous matches."""
+
+    if resolved.object_id:
+        return str(resolved.object_id)
+    alternatives = resolved.ambiguity.alternatives if resolved.ambiguity else []
+    raise AstroLensError(
+        ErrorCode.OBJECT_AMBIGUOUS,
+        f"'{query}' matches multiple objects; retry with one of the alternative ids.",
+        retryable=False,
+        details={
+            "query": query,
+            "alternatives": [
+                {"id": alternative.id, "name": alternative.name}
+                for alternative in alternatives[:6]
+            ],
+        },
+    )
 
 
 def _bands(value: Any) -> list[BandFamily] | None:
@@ -613,6 +641,98 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         },
         "annotations": READ_ONLY_ANNOTATIONS,
     },
+    {
+        "name": "show_object",
+        "description": (
+            "Best first call for 'show me X'. Returns the best real picture of an "
+            "object: a cross-source multi-wavelength composite when possible, plus "
+            "per-band panels, compiled cited facts, credit lines, and follow-ups. "
+            "Works for moving targets like Saturn via archive target-name matching."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "object": {"type": "string", "description": "Object name, e.g. 'M87'."},
+                "bands": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional band filter, e.g. ['visible','xray'].",
+                },
+                "pixels": {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 2048,
+                    "description": "Override the SkyView cutout pixel size.",
+                },
+            },
+            "required": ["object"],
+        },
+        "annotations": READ_ONLY_ANNOTATIONS,
+        "_meta": GALLERY_TOOL_META,
+    },
+    {
+        "name": "explain_object",
+        "description": (
+            "Best first call for 'tell me about X'. Returns compiled, cited numeric "
+            "facts (distance, size, brightness, redshift, lookback time) from SIMBAD "
+            "catalog measurements and deterministic astropy math — never generated "
+            "text. Fast: no imaging."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "object": {"type": "string", "description": "Object name, e.g. 'Vega'."},
+            },
+            "required": ["object"],
+        },
+        "annotations": READ_ONLY_ANNOTATIONS,
+    },
+    {
+        "name": "find_objects",
+        "description": (
+            "Find objects by category (e.g. 'quasar', 'supernova-remnant'), optionally "
+            "near another object or randomly sampled from the SIMBAD catalog. Use for "
+            "vague requests like 'show me a random quasar'; each hit includes a "
+            "ready-made show_object follow-up."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "description": (
+                        "Object category, e.g. 'quasar', 'galaxy', 'planetary-nebula'."
+                    ),
+                },
+                "near_object": {
+                    "type": "string",
+                    "description": "Optional object name to center a sky region on.",
+                },
+                "radius_deg": {
+                    "type": "number",
+                    "minimum": 0.01,
+                    "maximum": MCP_MAX_FIND_RADIUS_DEG,
+                },
+                "magnitude_limit": {
+                    "type": "number",
+                    "description": "Optional maximum V magnitude (brighter = smaller).",
+                },
+                "limit": {
+                    "type": "integer",
+                    "default": 5,
+                    "minimum": 1,
+                    "maximum": MCP_MAX_FIND_RESULTS,
+                },
+                "random_sample": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Pick a server-side random sample of the category.",
+                },
+            },
+            "required": ["category"],
+        },
+        "annotations": READ_ONLY_ANNOTATIONS,
+    },
 ]
 
 
@@ -665,7 +785,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
                 "meta": bundle.meta.model_dump(mode="json"),
             }
         resolved = resolver_service.resolve(str(arguments["object"]))
-        object_id = resolved.object_id or resolved.ambiguity.alternatives[0].id
+        object_id = _resolved_object_id(resolved, str(arguments["object"]))
         observations = repository.observations_for_object(
             object_id,
             _bands(arguments.get("bands")),
@@ -716,7 +836,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
                 "meta": bundle.meta.model_dump(mode="json"),
             }
         resolved = resolver_service.resolve(str(arguments["object"]))
-        object_id = resolved.object_id or resolved.ambiguity.alternatives[0].id
+        object_id = _resolved_object_id(resolved, str(arguments["object"]))
         bands = _bands(arguments.get("bands"))
         views = rank_views(
             repository.views_for_object(object_id, bands),
@@ -743,7 +863,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
     if name == "make_best_visual":
         bundle = await _bundle_for_visual_tool(arguments, max_views=8)
         best_view = bundle.views[0] if bundle.views else None
-        render_plan = _fits_render_plan_for_views(
+        render_plan = await _fits_render_plan_for_views(
             bundle.views,
             object_id=bundle.object.id,
             size="standard",
@@ -773,7 +893,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
         bundle = await _bundle_for_visual_tool(arguments, max_views=8)
         return {
             "object": bundle.object.model_dump(mode="json"),
-            "render_plan": _fits_render_plan_for_views(
+            "render_plan": await _fits_render_plan_for_views(
                 bundle.views,
                 object_id=bundle.object.id,
                 size=str(arguments.get("size", "standard")),
@@ -795,7 +915,31 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
             "warnings": [warning.model_dump(mode="json") for warning in bundle.warnings],
             "meta": bundle.meta.model_dump(mode="json"),
         }
-    raise ValueError(f"Unknown AstroLens MCP tool: {name}")
+    if name == "show_object":
+        return await showcase_service.show_object(
+            str(arguments["object"]),
+            bands=_bands(arguments.get("bands")),
+            pixels=_optional_int(arguments, "pixels"),
+        )
+    if name == "explain_object":
+        return await showcase_service.explain_object(str(arguments["object"]))
+    if name == "find_objects":
+        return await showcase_service.find_objects(
+            str(arguments["category"]),
+            near_object=(
+                str(arguments["near_object"]) if arguments.get("near_object") else None
+            ),
+            radius_deg=_optional_float(arguments, "radius_deg"),
+            magnitude_limit=_optional_float(arguments, "magnitude_limit"),
+            limit=bounded_int(
+                arguments.get("limit"),
+                default=5,
+                minimum=1,
+                maximum=MCP_MAX_FIND_RESULTS,
+            ),
+            random_sample=bool(arguments.get("random_sample", False)),
+        )
+    raise UnknownMcpToolError(f"Unknown AstroLens MCP tool: {name}")
 
 
 def _live_observation_row(view: Any) -> dict[str, Any]:
@@ -909,7 +1053,7 @@ async def _bundle_for_visual_tool(
     )
 
 
-def _fits_render_plan_for_views(
+async def _fits_render_plan_for_views(
     views: list[Any],
     *,
     object_id: str,
@@ -932,7 +1076,8 @@ def _fits_render_plan_for_views(
         size=size,  # type: ignore[arg-type]
         stretch=stretch,  # type: ignore[arg-type]
     )
-    return fits_renderer.render(request).model_dump(mode="json")
+    result = await asyncio.to_thread(fits_renderer.render, request)
+    return result.model_dump(mode="json")
 
 
 def _visual_provenance_card(view: Any) -> dict[str, Any]:

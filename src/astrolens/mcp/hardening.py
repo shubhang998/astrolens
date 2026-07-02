@@ -12,6 +12,8 @@ MCP_SEARCH_LIMIT = 10
 MCP_OBSERVATION_LIMIT = 20
 MCP_MAX_VIEWS = 6
 MCP_MAX_COMPARE_VIEWS_PER_BAND = 3
+MCP_MAX_FIND_RESULTS = 10
+MCP_MAX_FIND_RADIUS_DEG = 15.0
 
 RAW_METADATA_VALUE_MAX_CHARS = 300
 RAW_METADATA_OMITTED_KEY_LIMIT = 20
@@ -57,12 +59,18 @@ LIST_LIMITS_BY_KEY = {
     "caveats": 8,
     "citations": 8,
     "comparison": 12,
+    "credits": 8,
+    "fact_citations": 16,
     "facts": 4,
+    "hits": MCP_MAX_FIND_RESULTS,
+    "object_facts": 12,
     "observations": MCP_OBSERVATION_LIMIT,
+    "panels": 4,
     "provenance": MCP_MAX_VIEWS,
     "raw_products": 4,
     "results": MCP_SEARCH_LIMIT,
     "source_products": 4,
+    "suggested_followups": 4,
     "views": MCP_MAX_VIEWS,
     "warnings": 8,
 }
