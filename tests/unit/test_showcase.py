@@ -243,6 +243,24 @@ def test_find_objects_maps_category_and_adds_followups() -> None:
     assert payload["hits"][0]["followup"] == 'show_object {"object": "3C 273"}'
 
 
+def test_find_objects_falls_back_to_curated_examples_when_simbad_is_down() -> None:
+    class DownSimbad:
+        async def search_category(self, **kwargs: Any) -> None:
+            raise AstroLensError(
+                ErrorCode.SOURCE_TIMEOUT,
+                "SIMBAD TAP query failed on all mirrors.",
+                retryable=True,
+            )
+
+    service = _service(simbad=DownSimbad())
+
+    payload = asyncio.run(service.find_objects("quasar", random_sample=True))
+
+    assert [hit["main_id"] for hit in payload["hits"]] == ["3C 273"]
+    assert payload["hits"][0]["followup"] == 'show_object {"object": "3C 273"}'
+    assert any("curated" in warning for warning in payload["warnings"])
+
+
 def test_find_objects_rejects_unknown_category_with_teaching_error() -> None:
     service = _service()
 
