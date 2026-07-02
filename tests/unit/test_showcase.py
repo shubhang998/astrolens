@@ -208,6 +208,65 @@ def test_show_object_prefers_composite_hero_and_bands_panels() -> None:
     assert payload["suggested_followups"]
 
 
+def test_show_object_does_not_show_the_same_image_twice() -> None:
+    # Two same-band views sharing one asset URL must collapse to a single image.
+    dup_a = _view("a", BandFamily.VISIBLE)
+    dup_b = _view("b", BandFamily.VISIBLE)
+    dup_b.asset.asset_url = dup_a.asset.asset_url  # type: ignore[union-attr]
+    service = _service(_bundle([dup_a, dup_b]))
+
+    payload = asyncio.run(service.show_object("Saturn"))
+
+    urls = [(v.get("asset") or {}).get("asset_url") for v in payload["views"]]
+    assert len([u for u in urls if u]) == len(set(u for u in urls if u))
+
+
+def test_planet_facts_produce_headline_and_narrative() -> None:
+    planet_facts = [
+        Fact(
+            id="fact:saturn:diameter",
+            entity_type="object",
+            entity_id="astro:object:saturn",
+            claim="Saturn's equatorial diameter is about 120,536 km.",
+            scope="curated_planetary_fact",
+            confidence=0.9,
+            citation_ids=["citation:nssdc:planetary-fact-sheet"],
+            value=120_536.0,
+            unit="km",
+            quantity_kind="diameter",
+            source_fields=["nssdc.planetary_fact_sheet"],
+            scale_comparison="about 9.4 times the diameter of Earth",
+        ),
+        Fact(
+            id="fact:saturn:density",
+            entity_type="object",
+            entity_id="astro:object:saturn",
+            claim="Saturn's mean density is about 687 kg per cubic meter.",
+            scope="curated_planetary_fact",
+            confidence=0.9,
+            citation_ids=["citation:nssdc:planetary-fact-sheet"],
+            quantity_kind="density",
+            source_fields=["nssdc.planetary_fact_sheet"],
+            scale_comparison="less dense than water",
+        ),
+    ]
+    bundle = _bundle([_view("hst", BandFamily.VISIBLE)]).model_copy(
+        update={
+            "object": _OBJECT.model_copy(
+                update={"name": "Saturn", "type": "solar system planet"}
+            ),
+            "object_facts": planet_facts,
+        }
+    )
+    service = _service(bundle)
+
+    payload = asyncio.run(service.show_object("Saturn"))
+
+    assert "120,536 km" in payload["headline"]
+    assert payload["why_interesting"] is not None
+    assert "less dense than water" in payload["why_interesting"]
+
+
 def test_show_object_headline_and_why_interesting_come_only_from_facts() -> None:
     service = _service(_bundle([_view("visible", BandFamily.VISIBLE)]))
 

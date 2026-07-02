@@ -76,9 +76,10 @@ class ShowcaseService:
             size="thumbnail",
         )
         hero = bundle.views[0] if bundle.views else None
-        # Show only the two best images: the hero plus the best distinct-band
-        # supporting view. More detail lives in the compiled facts panel.
-        panels = _band_panels(bundle.views[1:] if hero else bundle.views)[
+        # Show only the two best images: the hero plus the best genuinely
+        # different supporting view (distinct band and distinct image), so the
+        # two slots never duplicate the same observation.
+        panels = _distinct_panels(hero, bundle.views[1:] if hero else bundle.views)[
             : MAX_SHOWN_IMAGES - 1
         ]
         shown_views = ([hero] if hero else []) + panels
@@ -232,12 +233,36 @@ def _band_panels(views: list[View]) -> list[View]:
     return panels
 
 
+def _distinct_panels(hero: View | None, views: list[View]) -> list[View]:
+    """Panels that differ from the hero by band and by image URL."""
+
+    hero_band = str(hero.band_family) if hero else None
+    hero_url = _asset_url(hero) if hero else None
+    candidates = [
+        view
+        for view in views
+        if _asset_url(view) and _asset_url(view) != hero_url
+    ]
+    distinct_band = [view for view in candidates if str(view.band_family) != hero_band]
+    return _band_panels(distinct_band or candidates)
+
+
+def _asset_url(view: View | None) -> str | None:
+    if view is None or view.asset is None:
+        return None
+    return view.asset.asset_url or view.asset.thumbnail_url
+
+
 def _headline(obj: CelestialObject, facts: list[Fact]) -> str:
     by_kind = {fact.quantity_kind: fact for fact in facts}
     classification = by_kind.get("classification")
-    headline = (
-        classification.claim if classification is not None else f"{obj.name} ({obj.type})."
-    )
+    if classification is not None:
+        headline = classification.claim
+    else:
+        # No SIMBAD classification (e.g. curated solar-system bodies): lead with
+        # the most vivid available measurement instead of a bare "(type)".
+        lead = _first_fact(facts, ("diameter", "distance", "physical_size"))
+        headline = lead.claim if lead is not None else f"{obj.name} ({obj.type})."
     distance = by_kind.get("distance")
     if distance is not None and distance.scale_comparison:
         headline = f"{headline.rstrip('.')} — {distance.scale_comparison}."
@@ -251,13 +276,17 @@ def _why_interesting(facts: list[Fact]) -> str | None:
         "physical_size",
         "apparent_magnitude",
         "redshift",
+        "diameter",
+        "distance_from_sun",
+        "orbital_period",
+        "density",
     )
     by_kind = {fact.quantity_kind: fact for fact in facts}
+    ordered = [by_kind[kind] for kind in preferred_order if kind in by_kind]
+    # Fall back to whatever facts exist so every object gets a narrative.
+    chosen = ordered or list(facts)
     sentences: list[str] = []
-    for kind in preferred_order:
-        fact = by_kind.get(kind)
-        if fact is None:
-            continue
+    for fact in chosen:
         sentence = fact.claim
         if fact.scale_comparison:
             sentence = f"{sentence.rstrip('.')} — {fact.scale_comparison}."
@@ -265,6 +294,14 @@ def _why_interesting(facts: list[Fact]) -> str | None:
         if len(sentences) >= 3:
             break
     return " ".join(sentences) or None
+
+
+def _first_fact(facts: list[Fact], kinds: tuple[str, ...]) -> Fact | None:
+    by_kind = {fact.quantity_kind: fact for fact in facts}
+    for kind in kinds:
+        if kind in by_kind:
+            return by_kind[kind]
+    return None
 
 
 def _credits(views: list[View]) -> list[dict[str, str]]:
