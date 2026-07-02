@@ -102,6 +102,11 @@ SOURCE_REFERENCES = {
         url="https://ui.adsabs.harvard.edu/",
         retrieved_at=RETRIEVED_AT,
     ),
+    "astrolens": SourceReference(
+        name="astrolens:curated (ephemeris placeholder coordinates)",
+        url=None,
+        retrieved_at=RETRIEVED_AT,
+    ),
 }
 
 
@@ -170,6 +175,8 @@ def object_record(
     ra: float,
     dec: float,
     identity: str,
+    *,
+    ephemeris_object: bool = False,
 ) -> CelestialObject:
     """Create a curated object record."""
 
@@ -180,6 +187,22 @@ def object_record(
         type=object_type,
         coordinates=Coordinates(ra_deg=ra, dec_deg=dec),
         identity_sources=[SOURCE_REFERENCES[identity]],
+        ephemeris_object=ephemeris_object,
+    )
+
+
+def ephemeris_record(slug: str, name: str, object_type: str) -> CelestialObject:
+    """Create a solar-system record whose (0, 0) coordinates are placeholders."""
+
+    return object_record(
+        slug,
+        name,
+        [],
+        object_type,
+        0.0,
+        0.0,
+        "astrolens",
+        ephemeris_object=True,
     )
 
 
@@ -536,12 +559,12 @@ OBJECTS = [
         -16.17100,
         "simbad",
     ),
-    object_record("jupiter", "Jupiter", [], "solar system planet", 0.0, 0.0, "simbad"),
-    object_record("saturn", "Saturn", [], "solar system planet", 0.0, 0.0, "simbad"),
-    object_record("uranus", "Uranus", [], "solar system planet", 0.0, 0.0, "simbad"),
-    object_record("neptune", "Neptune", [], "solar system planet", 0.0, 0.0, "simbad"),
-    object_record("titan", "Titan", [], "moon", 0.0, 0.0, "simbad"),
-    object_record("io", "Io", [], "moon", 0.0, 0.0, "simbad"),
+    ephemeris_record("jupiter", "Jupiter", "solar system planet"),
+    ephemeris_record("saturn", "Saturn", "solar system planet"),
+    ephemeris_record("uranus", "Uranus", "solar system planet"),
+    ephemeris_record("neptune", "Neptune", "solar system planet"),
+    ephemeris_record("titan", "Titan", "moon"),
+    ephemeris_record("io", "Io", "moon"),
 ]
 
 
@@ -575,6 +598,22 @@ BAND_NOTES = {
         general_meaning=(
             "Radio views often trace jets, cold gas, magnetic fields, and structures "
             "invisible in ordinary optical images."
+        ),
+        confidence=0.82,
+    ),
+    BandFamily.MILLIMETER: CrossWavelengthNote(
+        band_family=BandFamily.MILLIMETER,
+        general_meaning=(
+            "Millimeter views often trace the coldest dust, dense molecular gas, and "
+            "foregrounds of the cosmic microwave background."
+        ),
+        confidence=0.82,
+    ),
+    BandFamily.GAMMA: CrossWavelengthNote(
+        band_family=BandFamily.GAMMA,
+        general_meaning=(
+            "Gamma-ray views often trace the most violent particle acceleration, such "
+            "as pulsars, blazar jets, and supernova shocks."
         ),
         confidence=0.82,
     ),

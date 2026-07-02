@@ -59,6 +59,9 @@ class CelestialObject(AstroLensModel):
     type: str = "unknown"
     coordinates: Coordinates
     identity_sources: list[SourceReference] = Field(default_factory=list)
+    # Solar-system bodies move across the sky; their stored coordinates are
+    # placeholders and must not be used for cone searches or sky cutouts.
+    ephemeris_object: bool = False
 
 
 class Observation(AstroLensModel):
@@ -174,7 +177,12 @@ class Asset(AstroLensModel):
 
 
 class Fact(AstroLensModel):
-    """Small source-grounded claim that an agent can cite."""
+    """Small source-grounded claim that an agent can cite.
+
+    Numeric facts must be traceable: ``source_fields`` names the catalog
+    fields the value came from, and ``derivation`` names the deterministic
+    function applied to them (None means a direct catalog value).
+    """
 
     id: str
     entity_type: str
@@ -183,6 +191,12 @@ class Fact(AstroLensModel):
     scope: str
     confidence: float = Field(ge=0.0, le=1.0)
     citation_ids: list[str] = Field(default_factory=list)
+    value: float | None = None
+    unit: str | None = None
+    quantity_kind: str | None = None
+    source_fields: list[str] = Field(default_factory=list)
+    derivation: str | None = None
+    scale_comparison: str | None = None
 
 
 class ViewScores(AstroLensModel):
@@ -257,6 +271,8 @@ class EvidenceBundle(AstroLensModel):
     object: CelestialObject
     views: list[View] = Field(default_factory=list)
     cross_wavelength_notes: list[CrossWavelengthNote] = Field(default_factory=list)
+    object_facts: list[Fact] = Field(default_factory=list)
+    fact_citations: list[Citation] = Field(default_factory=list)
     warnings: list[WarningMessage] = Field(default_factory=list)
     meta: ResponseMeta
 
@@ -327,6 +343,16 @@ class ObjectDetailResponse(AstroLensModel):
     object: CelestialObject
     observations: list[Observation] = Field(default_factory=list)
     views: list[View] = Field(default_factory=list)
+    meta: ResponseMeta
+
+
+class ObjectFactsResponse(AstroLensModel):
+    """Compiled catalog facts for one object."""
+
+    object: CelestialObject
+    facts: list[Fact] = Field(default_factory=list)
+    citations: list[Citation] = Field(default_factory=list)
+    warnings: list[WarningMessage] = Field(default_factory=list)
     meta: ResponseMeta
 
 

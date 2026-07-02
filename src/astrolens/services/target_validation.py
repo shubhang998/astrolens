@@ -13,6 +13,36 @@ CENTERED_THRESHOLD_ARCSEC = 5.0
 NEARBY_THRESHOLD_ARCSEC = 60.0
 LIKELY_OUT_OF_FRAME_ARCSEC = 180.0
 
+# Solar-system bodies whose sky position changes; cone searches and sky
+# cutouts at stored coordinates would return a wrong field for these.
+EPHEMERIS_TARGETS = frozenset(
+    {
+        "mercury",
+        "venus",
+        "mars",
+        "jupiter",
+        "saturn",
+        "uranus",
+        "neptune",
+        "pluto",
+        "titan",
+        "io",
+        "europa",
+        "ganymede",
+        "callisto",
+        "enceladus",
+        "moon",
+        "sun",
+    }
+)
+
+
+def is_ephemeris_target(query: str) -> bool:
+    """Whether a query names a moving solar-system body."""
+
+    normalized = "".join(ch.lower() for ch in query.strip() if ch.isalnum())
+    return normalized in EPHEMERIS_TARGETS
+
 
 @dataclass(frozen=True)
 class TargetValidationResult:
