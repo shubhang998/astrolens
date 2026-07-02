@@ -15,7 +15,7 @@ from astrolens.connectors.simbad_tap import (
 )
 from astrolens.core.enums import BandFamily, ErrorCode
 from astrolens.core.errors import AstroLensError
-from astrolens.core.models import CelestialObject, Fact, View
+from astrolens.core.models import CelestialObject, Citation, Fact, View
 from astrolens.services.facts import (
     FactsCompilerService,
     ObjectFactsResult,
@@ -27,11 +27,15 @@ from astrolens.services.live_sources import (
     live_source_evidence_service,
 )
 from astrolens.services.repository import repository
+from astrolens.services.summarizer import SummarizerService, Summary, summarizer_service
+from astrolens.services.vision_ranker import VisionRankerService, vision_ranker_service
 
 # How many candidate views to fetch/rank (the band recipe needs several to
 # build a composite) versus how many images the widget actually shows.
 MAX_PANELS = 4
-MAX_SHOWN_IMAGES = 2
+MAX_SHOWN_IMAGES = 3
+# Never show more than this many views of one band family in the top slots.
+MAX_SAME_BAND = 2
 MAX_FIND_RESULTS = 10
 MAX_FIND_RADIUS_DEG = 15.0
 
@@ -45,11 +49,15 @@ class ShowcaseService:
         facts: FactsCompilerService = facts_compiler_service,
         simbad: SimbadTapConnector = simbad_tap_connector,
         resolver: LiveIngestionService = live_ingestion_service,
+        vision: VisionRankerService = vision_ranker_service,
+        summarizer: SummarizerService = summarizer_service,
     ) -> None:
         self.live_sources = live_sources
         self.facts = facts
         self.simbad = simbad
         self.resolver = resolver
+        self.vision = vision
+        self.summarizer = summarizer
 
     async def show_object(
         self,
@@ -75,14 +83,13 @@ class ShowcaseService:
             # proxy time limits on small instances.
             size="thumbnail",
         )
-        hero = _prefer_color_hero(bundle.views)
-        remaining = [view for view in bundle.views if view is not hero]
-        # Show only the two best images: the hero plus the best genuinely
-        # different supporting view (distinct band and distinct image), so the
-        # two slots never duplicate the same observation.
-        panels = _distinct_panels(hero, remaining)[: MAX_SHOWN_IMAGES - 1]
-        shown_views = ([hero] if hero else []) + panels
-        return {
+        shown_views = await self._select_views(bundle.object.name, bundle.views)
+        hero = shown_views[0] if shown_views else None
+        panels = shown_views[1:]
+        summary = await self._summary(
+            bundle.object, bundle.object_facts, bundle.fact_citations, shown_views
+        )
+        payload = {
             "object": bundle.object.model_dump(mode="json"),
             "headline": _headline(bundle.object, bundle.object_facts),
             "why_interesting": _why_interesting(bundle.object_facts),
@@ -98,13 +105,53 @@ class ShowcaseService:
             "warnings": [warning.model_dump(mode="json") for warning in bundle.warnings],
             "meta": bundle.meta.model_dump(mode="json"),
         }
+        if summary is not None:
+            payload["summary"] = summary.model_dump(mode="json")
+        return payload
+
+    async def _select_views(self, obj_name: str, views: list[View]) -> list[View]:
+        """Pick the shown images: vision-ranked when possible, deterministic otherwise."""
+
+        scores: dict[str, float] = {}
+        if self.vision.client.available():
+            try:
+                scores = await self.vision.rank_views(obj_name, views)
+            except Exception:  # noqa: BLE001 - ranking must never fail the request
+                scores = {}
+        if scores:
+            selected = _select_by_score(views, scores)
+            if selected:
+                return selected
+        # Deterministic fallback: color-preferred hero plus genuinely different
+        # supporting views (distinct images, one panel per band).
+        hero = _prefer_color_hero(views)
+        remaining = [view for view in views if view is not hero]
+        panels = _distinct_panels(hero, remaining)[: MAX_SHOWN_IMAGES - 1]
+        return ([hero] if hero else []) + panels
+
+    async def _summary(
+        self,
+        obj: CelestialObject,
+        facts: list[Fact],
+        citations: list[Citation],
+        views: list[View],
+    ) -> Summary | None:
+        """Optional labeled interpretation; absent whenever it cannot be grounded."""
+
+        if not facts or not self.summarizer.client.available():
+            return None
+        try:
+            return await self.summarizer.summarize(obj, facts, citations, views)
+        except Exception:  # noqa: BLE001 - interpretation must never fail the request
+            return None
 
     async def explain_object(self, query: str) -> dict[str, Any]:
         """Compiled, cited numeric facts for one object; no imaging."""
 
         obj = await self._resolve(query)
         result: ObjectFactsResult = await self.facts.facts_for_object(obj)
-        return {
+        summary = await self._summary(obj, result.facts, result.citations, [])
+        payload = {
             "object": obj.model_dump(mode="json"),
             "headline": _headline(obj, result.facts),
             "object_facts": [fact.model_dump(mode="json") for fact in result.facts],
@@ -114,6 +161,9 @@ class ShowcaseService:
             "suggested_followups": _followups(obj),
             "warnings": [warning.model_dump(mode="json") for warning in result.warnings],
         }
+        if summary is not None:
+            payload["summary"] = summary.model_dump(mode="json")
+        return payload
 
     async def find_objects(
         self,
@@ -274,6 +324,40 @@ def _is_color_view(view: View) -> bool:
     return (
         str(asset.visual_tier) == "astrolens_rendered" and asset.false_color is True
     )
+
+
+def _select_by_score(views: list[View], scores: dict[str, float]) -> list[View]:
+    """Top MAX_SHOWN_IMAGES views by vision score: distinct images, bounded bands.
+
+    Unscored views (no usable image URL, or skipped by the ranker) trail the
+    scored ones in their original deterministic order. The hero slot keeps the
+    existing low-detail exclusion.
+    """
+
+    ordered = sorted(views, key=lambda view: scores.get(view.id, -1.0), reverse=True)
+    hero = next(
+        (view for view in ordered if _asset_url(view) and not _is_low_detail(view)), None
+    )
+    if hero is None:
+        return []
+    selected: list[View] = [hero]
+    seen_urls: set[str] = {_asset_url(hero) or ""}
+    band_counts: dict[str, int] = {str(hero.band_family): 1}
+    for view in ordered:
+        if len(selected) >= MAX_SHOWN_IMAGES:
+            break
+        if view is hero:
+            continue
+        url = _asset_url(view)
+        if not url or url in seen_urls:
+            continue
+        band = str(view.band_family)
+        if band_counts.get(band, 0) >= MAX_SAME_BAND:
+            continue
+        seen_urls.add(url)
+        band_counts[band] = band_counts.get(band, 0) + 1
+        selected.append(view)
+    return selected
 
 
 def _distinct_panels(hero: View | None, views: list[View]) -> list[View]:

@@ -248,6 +248,63 @@ Return raw archive links for a view/product.
   `fact_citations` ≤ 16. A worst-case `show_object` payload is byte-budget
   tested against the cap.
 
+## Interpretation layer (LLM)
+
+The hero tools carry an optional, clearly labeled interpretation layer on top
+of the deterministic evidence pipeline. Two rules are absolute:
+
+- Numeric facts stay traceable. The LLM never authors numbers, measurements,
+  or scientific claims; compiled `Fact` objects remain the only source of
+  quantitative content.
+- Everything degrades gracefully. Without `ANTHROPIC_API_KEY` (or on any API
+  error, timeout, or malformed reply) responses are the deterministic ones:
+  no `summary` field, deterministic image order.
+
+### Vision-ranked image selection
+
+`VisionRankerService` (`services/vision_ranker.py`) scores the deterministic
+candidate views with one multimodal call per uncached image set and returns
+`view.id -> score (0..1)`. `show_object` then picks up to 3 images (was 2)
+ordered by score, keeping distinct image URLs, at most 2 views per band
+family, and the low-detail exclusion for the hero slot. Details:
+
+- Only absolute `https` asset URLs are sent; relative `/v1/rendered/...` URLs
+  are absolutized against `ASTROLENS_PUBLIC_BASE_URL` and skipped otherwise.
+- Verdicts (`{score, reasons, model, version}`) persist as JSON files keyed by
+  the sha256 of the image URL under `<cache>/vision-verdicts/`, so each
+  rendered image is judged at most once. The cache base is
+  `ASTROLENS_VISION_CACHE_DIR`, else a sibling of
+  `ASTROLENS_RENDER_CACHE_DIR`, else `.astrolens-cache/vision-verdicts`.
+- Any failure (no key, API error, unparseable reply) yields no scores and the
+  existing deterministic selection (color-preferred hero + distinct band
+  panels) is used unchanged.
+
+### Interpretation summaries
+
+`SummarizerService` (`services/summarizer.py`) adds an optional `summary`
+object to `show_object` and `explain_object` payloads:
+`{"text", "citation_ids", "model", "generated": true}`. The widget renders it
+as the description paragraph behind an "AI summary · Sonnet" badge; the
+compiled facts rows below remain the canonical data, and the deterministic
+headline/why_interesting fallback is used whenever the field is absent.
+
+Grounding contract, enforced before a summary is served:
+
+- The prompt provides only the numbered compiled facts (claims plus scale
+  comparisons) and a qualitative list of the imagery shown.
+- Every bracketed citation marker (`[1]`, `[1,2]`) must reference a provided
+  fact number; markers map back to `Fact.citation_ids` to fill
+  `summary.citation_ids`.
+- Every numeric token in the reply (outside citation markers) must literally
+  appear in a provided fact claim, value, or scale comparison. Replies that
+  fail validation are dropped (never cached) and the field is omitted.
+- Validated summaries cache on disk keyed by sha256 of object id, fact
+  ids/claims, model, and prompt version, under `<cache>/summaries/`
+  (`ASTROLENS_SUMMARY_CACHE_DIR` override).
+
+The `summary` object is a small fixed-size dict, so no `LIST_LIMITS_BY_KEY`
+entry is needed.
+
 ## JSON-RPC transport rules
 
 The `/mcp` endpoint implements strict JSON-RPC 2.0 handling:
