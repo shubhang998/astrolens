@@ -26,6 +26,7 @@ from astrolens.core.models import (
     Fact,
     WarningMessage,
 )
+from astrolens.data.seed import CURATED_OBJECT_FACTS, NSSDC_CITATION
 from astrolens.services.repository import normalize_query
 
 PC_TO_LIGHT_YEARS = 3.26156
@@ -149,6 +150,29 @@ class FactsCompilerService:
         self.simbad = simbad
 
     async def facts_for_object(self, obj: CelestialObject) -> ObjectFactsResult:
+        curated = CURATED_OBJECT_FACTS.get(obj.id)
+        if curated:
+            return ObjectFactsResult(
+                facts=list(curated),
+                citations=[NSSDC_CITATION],
+            )
+        if obj.ephemeris_object:
+            # Solar-system bodies are not in fixed-sky catalogs; asking SIMBAD
+            # would only produce a confusing "no record" answer.
+            return ObjectFactsResult(
+                warnings=[
+                    WarningMessage(
+                        code="FACTS_EPHEMERIS_OBJECT",
+                        message=(
+                            f"{obj.name} is a solar-system body that moves across "
+                            "the sky; fixed-sky catalog measurements (SIMBAD) do "
+                            "not apply and no curated fact sheet is loaded for it."
+                        ),
+                        source="AstroLens",
+                        retryable=False,
+                    )
+                ]
+            )
         try:
             measurements = await self.simbad.fetch_measurements(obj.name)
         except AstroLensError as exc:

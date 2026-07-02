@@ -215,6 +215,11 @@ class LiveSourceEvidenceService:
     async def _facts_for_query(self, query: str) -> ObjectFactsResult:
         """Resolve and compile facts; failures degrade to warnings, never errors."""
 
+        # Curated objects (including solar-system bodies with curated fact
+        # sheets) must not depend on live Sesame resolution.
+        matches = repository.find_objects(query, limit=1)
+        if matches:
+            return await self.facts.facts_for_object(matches[0])
         try:
             live_object, _cache_status = await self.resolver.object_live(query)
         except AstroLensError as exc:

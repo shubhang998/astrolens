@@ -567,6 +567,200 @@ OBJECTS = [
     ephemeris_record("io", "Io", "moon"),
 ]
 
+NSSDC_CITATION = Citation(
+    id="citation:nssdc:planetary-fact-sheet",
+    title="NASA NSSDC Planetary Fact Sheets",
+    source="NASA NSSDC",
+    url="https://nssdc.gsfc.nasa.gov/planetary/factsheet/",
+    credit_text="NASA Goddard Space Flight Center, NSSDCA",
+)
+
+
+def _planetary_fact(
+    slug: str,
+    quantity_kind: str,
+    claim: str,
+    *,
+    value: float | None = None,
+    unit: str | None = None,
+    scale_comparison: str | None = None,
+) -> Fact:
+    return Fact(
+        id=f"fact:{slug}:{quantity_kind}",
+        entity_type="object",
+        entity_id=f"astro:object:{slug}",
+        claim=claim,
+        scope="curated_planetary_fact",
+        confidence=0.9,
+        citation_ids=[NSSDC_CITATION.id],
+        value=value,
+        unit=unit,
+        quantity_kind=quantity_kind,
+        source_fields=["nssdc.planetary_fact_sheet"],
+        scale_comparison=scale_comparison,
+    )
+
+
+# Solar-system bodies have no SIMBAD records; these values come from the NASA
+# NSSDC planetary fact sheets and satisfy the numeric-fact traceability rule.
+CURATED_OBJECT_FACTS: dict[str, list[Fact]] = {
+    "astro:object:jupiter": [
+        _planetary_fact(
+            "jupiter",
+            "diameter",
+            "Jupiter's equatorial diameter is about 142,984 km.",
+            value=142_984.0,
+            unit="km",
+            scale_comparison="about 11 times the diameter of Earth",
+        ),
+        _planetary_fact(
+            "jupiter",
+            "distance_from_sun",
+            "Jupiter orbits about 5.2 times farther from the Sun than Earth.",
+            value=5.2,
+            unit="AU",
+        ),
+        _planetary_fact(
+            "jupiter",
+            "orbital_period",
+            "A Jupiter year lasts about 11.9 Earth years.",
+            value=11.9,
+            unit="Earth years",
+        ),
+        _planetary_fact(
+            "jupiter",
+            "mass",
+            "Jupiter's mass is about 318 times Earth's, more than all other "
+            "planets combined.",
+            value=318.0,
+            unit="Earth masses",
+        ),
+    ],
+    "astro:object:saturn": [
+        _planetary_fact(
+            "saturn",
+            "diameter",
+            "Saturn's equatorial diameter is about 120,536 km.",
+            value=120_536.0,
+            unit="km",
+            scale_comparison="about 9.4 times the diameter of Earth",
+        ),
+        _planetary_fact(
+            "saturn",
+            "distance_from_sun",
+            "Saturn orbits about 9.6 times farther from the Sun than Earth.",
+            value=9.58,
+            unit="AU",
+        ),
+        _planetary_fact(
+            "saturn",
+            "orbital_period",
+            "A Saturn year lasts about 29.4 Earth years.",
+            value=29.4,
+            unit="Earth years",
+        ),
+        _planetary_fact(
+            "saturn",
+            "density",
+            "Saturn's mean density is about 687 kg per cubic meter.",
+            value=687.0,
+            unit="kg/m^3",
+            scale_comparison="less dense than water",
+        ),
+    ],
+    "astro:object:uranus": [
+        _planetary_fact(
+            "uranus",
+            "diameter",
+            "Uranus's equatorial diameter is about 51,118 km.",
+            value=51_118.0,
+            unit="km",
+            scale_comparison="about 4 times the diameter of Earth",
+        ),
+        _planetary_fact(
+            "uranus",
+            "distance_from_sun",
+            "Uranus orbits about 19.2 times farther from the Sun than Earth.",
+            value=19.2,
+            unit="AU",
+        ),
+        _planetary_fact(
+            "uranus",
+            "axial_tilt",
+            "Uranus's rotation axis is tilted about 97.8 degrees, so it "
+            "effectively orbits on its side.",
+            value=97.8,
+            unit="degrees",
+        ),
+    ],
+    "astro:object:neptune": [
+        _planetary_fact(
+            "neptune",
+            "diameter",
+            "Neptune's equatorial diameter is about 49,528 km.",
+            value=49_528.0,
+            unit="km",
+            scale_comparison="about 3.9 times the diameter of Earth",
+        ),
+        _planetary_fact(
+            "neptune",
+            "distance_from_sun",
+            "Neptune orbits about 30 times farther from the Sun than Earth.",
+            value=30.1,
+            unit="AU",
+        ),
+        _planetary_fact(
+            "neptune",
+            "orbital_period",
+            "A Neptune year lasts about 164.8 Earth years.",
+            value=164.8,
+            unit="Earth years",
+        ),
+    ],
+    "astro:object:titan": [
+        _planetary_fact(
+            "titan",
+            "diameter",
+            "Titan's diameter is about 5,150 km, larger than the planet Mercury.",
+            value=5_150.0,
+            unit="km",
+            scale_comparison="larger than the planet Mercury",
+        ),
+        _planetary_fact(
+            "titan",
+            "orbital_period",
+            "Titan orbits Saturn about every 15.9 Earth days.",
+            value=15.9,
+            unit="Earth days",
+        ),
+        _planetary_fact(
+            "titan",
+            "surface_pressure",
+            "Titan's thick nitrogen atmosphere has a surface pressure about 1.5 "
+            "times Earth's.",
+            value=1.5,
+            unit="bar",
+        ),
+    ],
+    "astro:object:io": [
+        _planetary_fact(
+            "io",
+            "diameter",
+            "Io's diameter is about 3,643 km, slightly larger than Earth's Moon.",
+            value=3_643.0,
+            unit="km",
+            scale_comparison="slightly larger than Earth's Moon",
+        ),
+        _planetary_fact(
+            "io",
+            "orbital_period",
+            "Io orbits Jupiter about every 1.8 Earth days.",
+            value=1.77,
+            unit="Earth days",
+        ),
+    ],
+}
+
 
 BAND_NOTES = {
     BandFamily.VISIBLE: CrossWavelengthNote(
