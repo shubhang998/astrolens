@@ -147,6 +147,54 @@ is a deterministic lookup by wavelength, is recorded as a recipe caveat
 ("brightness is real data, hue is presentational"), and never feeds the
 color-separation boost used by multi-band composites.
 
+## Archive preview normalization
+
+`services/preview_normalizer.py` cleans up ugly MAST archive preview JPEGs
+(rotated detector footprints floating diamond-wise on flat backgrounds,
+off-center content, huge empty margins) before they are shown as view assets:
+
+- Decode is memory-guarded exactly like preview quality scoring: JPEGs above
+  8M pixels are draft-decoded at reduced scale, and anything still oversized
+  is skipped rather than OOM-decoded.
+- The background is the median border color; content is whatever differs from
+  it beyond a small threshold, after a 3x3 morphological opening.
+- The preview is cropped to the content bounding box with a small margin;
+  near-full-frame content is left uncropped.
+- De-tilt happens only when the content mask is verifiably a rotated
+  rectangle: the principal-axis angle from second-order image moments (with a
+  deterministic angle sweep backing up degenerate square/diamond footprints)
+  must land between 3 and 87 degrees, and the mask must fill more than ~85%
+  of its own minimum-area rectangle. Irregular content — a nebula — is never
+  "straightened".
+- Effectively grayscale previews from non-visible bands get the same
+  observatory-conventional single-band duotone as the renderer
+  (`tint_for_wavelength`), using a representative wavelength per band family.
+  Visible and unknown bands are never tinted.
+
+The whole pipeline is deterministic and pure numpy+PIL. Outputs are PNGs in
+the FITS render cache directory (`prevnorm_<sha256[:24]>.png`, hash of source
+URL + pipeline version + tint wavelength), served by `/v1/rendered/{filename}`
+with a JSON sidecar recording what changed. The live MAST path normalizes only
+the final selected views (bounded to two concurrent downloads), swaps the
+asset and thumbnail URLs to the normalized derivative, appends a provenance
+note listing only what actually happened ("Auto-cropped/de-tilted/band-tinted
+by AstroLens from the archive preview."), and sets `false_color=true` when a
+tint was applied. If normalization fails or changes nothing meaningful, the
+original archive URL is kept, and the raw product links always retain the
+original archive preview.
+
+## Infrared SkyView RGB composites
+
+The SkyView evidence path builds a true near-infrared RGB composite exactly
+parallel to the visible one: when infrared is requested, the default survey
+set now fetches the full 2MASS J/H/K trio, and three distinct-wavelength
+infrared cutouts are rendered as one composite view (id suffix
+`infrared-rgb`, `band_family=infrared`, `false_color=true`, J to blue, H to
+green, K to red by the standard shortest-to-blue wavelength mapping). The
+three contributing single-survey views are excluded from the bundle. Renders
+stay inside the existing per-request concurrency bound and the process-wide
+render slot semaphore.
+
 ## Cross-source composites and band recipes
 
 `services/composites.py` builds one multi-wavelength composite per object by

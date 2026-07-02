@@ -44,6 +44,11 @@ from astrolens.services.preview_image_quality import (
     PreviewImageQualityAnalyzer,
     preview_image_quality_analyzer,
 )
+from astrolens.services.preview_normalizer import (
+    NormalizedResult,
+    PreviewNormalizerService,
+    preview_normalizer_service,
+)
 from astrolens.services.repository import normalize_query
 from astrolens.services.target_validation import validate_observation_target
 from astrolens.services.visual_quality import VisualQualityTier, assess_visual_quality
@@ -72,6 +77,17 @@ MAST_LIVE_REUSE = ReusePolicy(
     ],
 )
 
+# Representative wavelengths used only to pick the observatory-conventional
+# single-band tint for effectively grayscale archive previews. Visible and
+# unknown bands map to None: no tint, grayscale stays honest there.
+BAND_TINT_WAVELENGTH_NM: dict[BandFamily, float] = {
+    BandFamily.XRAY: 1.2,
+    BandFamily.ULTRAVIOLET: 230.0,
+    BandFamily.INFRARED: 2200.0,
+    BandFamily.MILLIMETER: 1_382_000.0,
+    BandFamily.RADIO: 214_000_000.0,
+}
+
 
 class LiveEvidenceService:
     """Build source-grounded live evidence bundles for selected archives."""
@@ -81,10 +97,12 @@ class LiveEvidenceService:
         resolver: LiveIngestionService = live_ingestion_service,
         mast: MastConnector = mast_connector,
         preview_quality: PreviewImageQualityAnalyzer | None = None,
+        preview_normalizer: PreviewNormalizerService | None = None,
     ) -> None:
         self.resolver = resolver
         self.mast = mast
         self.preview_quality = preview_quality
+        self.preview_normalizer = preview_normalizer
         self.cache: dict[str, EvidenceBundle] = {}
 
     async def bundle_for_query(
@@ -219,6 +237,9 @@ class LiveEvidenceService:
             rank_mode=rank_mode,
             max_views=max_views,
         )
+        # Normalize only the previews that will actually be returned; the
+        # candidate pool is larger and normalization downloads pixels.
+        await self._normalize_selected_previews(views)
         warnings = self._warnings_for_result(mast_result.warnings, views)
         status = (
             CacheStatus.PARTIAL
@@ -485,6 +506,68 @@ class LiveEvidenceService:
                     1.0,
                     max(0.0, (view.scores.overall * 0.78) + (result.score * 0.22)),
                 )
+
+    async def _normalize_selected_previews(self, views: list[View]) -> None:
+        """Swap ugly archive previews for cropped/de-tilted/tinted derivatives.
+
+        Runs only on the final selected views. The original archive preview
+        stays reachable through the view's raw product links; only the asset
+        display URLs move to the normalized `/v1/rendered/...` derivative.
+        """
+
+        normalizer = self.preview_normalizer
+        if not normalizer:
+            return
+        targets = [
+            (view, view.asset)
+            for view in views
+            if view.asset and view.asset.asset_url
+        ]
+        if not targets:
+            return
+        # Bounded fan-out: each normalization downloads and decodes an image,
+        # so unbounded gather can spike memory on small instances.
+        semaphore = asyncio.Semaphore(2)
+
+        async def normalize(view: View, url: str) -> Any:
+            async with semaphore:
+                return await asyncio.to_thread(
+                    normalizer.normalized_asset_url,
+                    url,
+                    wavelength_nm=BAND_TINT_WAVELENGTH_NM.get(view.band_family),
+                )
+
+        results = await asyncio.gather(
+            *[normalize(view, str(asset.asset_url)) for view, asset in targets],
+            return_exceptions=True,
+        )
+        for (_view, asset), result in zip(targets, results, strict=False):
+            if not isinstance(result, NormalizedResult):
+                continue
+            asset.asset_url = result.asset_url
+            asset.thumbnail_url = result.asset_url
+            asset.width = result.width
+            asset.height = result.height
+            if result.tinted_band:
+                asset.false_color = True
+            note = _normalization_note(result)
+            asset.processing_note = (
+                f"{asset.processing_note} {note}" if asset.processing_note else note
+            )
+
+
+def _normalization_note(result: NormalizedResult) -> str:
+    """Describe only the normalization steps that actually happened."""
+
+    parts: list[str] = []
+    if result.cropped:
+        parts.append("auto-cropped")
+    if result.rotated_deg is not None:
+        parts.append("de-tilted")
+    if result.tinted_band:
+        parts.append(f"{result.tinted_band}-band-tinted")
+    text = "/".join(parts)
+    return f"{text[:1].upper()}{text[1:]} by AstroLens from the archive preview."
 
 
 def _facility_for_collection(collection: str | None) -> str | None:
@@ -829,4 +912,7 @@ def _safe_float(value: object) -> float | None:
         return None
 
 
-live_evidence_service = LiveEvidenceService(preview_quality=preview_image_quality_analyzer)
+live_evidence_service = LiveEvidenceService(
+    preview_quality=preview_image_quality_analyzer,
+    preview_normalizer=preview_normalizer_service,
+)

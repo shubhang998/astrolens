@@ -24,6 +24,7 @@ from astrolens.services.preview_image_quality import (
     PreviewImageQuality,
     PreviewImageQualityAnalyzer,
 )
+from astrolens.services.preview_normalizer import NormalizedResult, PreviewNormalizerService
 from astrolens.services.repository import EvidenceRepository
 
 
@@ -299,6 +300,25 @@ class FakePreviewQualityAnalyzer(PreviewImageQualityAnalyzer):
         return PreviewImageQuality(status="ok", score=score)
 
 
+class FakePreviewNormalizer(PreviewNormalizerService):
+    """Records normalization calls and returns a canned result."""
+
+    def __init__(self, result: NormalizedResult | None) -> None:
+        self.result = result
+        self.calls: list[tuple[str, float | None]] = []
+
+    def normalized_asset_url(
+        self,
+        url: str,
+        *,
+        wavelength_nm: float | None = None,
+        cache_dir: object = None,
+        public_base: str | None = None,
+    ) -> NormalizedResult | None:
+        self.calls.append((url, wavelength_nm))
+        return self.result
+
+
 def test_mast_download_url_preserves_public_file_endpoint() -> None:
     url = mast_download_url("mast:JWST/product/example_i2d.jpg")
 
@@ -565,3 +585,96 @@ def test_latest_keeps_distinct_archive_products_from_same_visual_family() -> Non
     urls = [str(view.asset.asset_url) for view in bundle.views if view.asset]
     assert len(urls) == 2
     assert all("wfc3_uvis" in url for url in urls)
+
+
+def test_preview_normalizer_swaps_asset_urls_and_appends_processing_note() -> None:
+    resolver = LiveIngestionService(
+        repo=EvidenceRepository(),
+        connector=FakeSesameConnector(),
+    )
+    normalizer = FakePreviewNormalizer(
+        NormalizedResult(
+            asset_url="/v1/rendered/prevnorm_abc123.png",
+            width=820,
+            height=640,
+            cropped=True,
+            rotated_deg=-31.5,
+            tinted_band=None,
+        )
+    )
+    service = LiveEvidenceService(
+        resolver=resolver,
+        mast=VisualRankingMastConnector(),
+        preview_normalizer=normalizer,
+    )
+
+    bundle = asyncio.run(service.bundle_for_query("M87", max_views=2, rank_mode="best_visual"))
+
+    # Only the final selected views were normalized, with the archive URLs.
+    assert len(normalizer.calls) == len(bundle.views)
+    assert all(url.startswith("https://mast.stsci.edu") for url, _ in normalizer.calls)
+    for view in bundle.views:
+        assert view.asset is not None
+        assert view.asset.asset_url == "/v1/rendered/prevnorm_abc123.png"
+        assert view.asset.thumbnail_url == "/v1/rendered/prevnorm_abc123.png"
+        assert view.asset.width == 820 and view.asset.height == 640
+        assert "Auto-cropped/de-tilted by AstroLens" in str(view.asset.processing_note)
+        # The original archive preview stays reachable via raw product links.
+        assert any(
+            str(product.preview_url or "").startswith("https://mast.stsci.edu")
+            for product in view.raw_products
+        )
+
+
+def test_preview_normalizer_receives_band_wavelength_for_tinting() -> None:
+    resolver = LiveIngestionService(
+        repo=EvidenceRepository(),
+        connector=FakeSesameConnector(),
+    )
+    normalizer = FakePreviewNormalizer(None)
+    service = LiveEvidenceService(
+        resolver=resolver,
+        mast=VisualRankingMastConnector(),
+        preview_normalizer=normalizer,
+    )
+
+    bundle = asyncio.run(service.bundle_for_query("M87", max_views=2, rank_mode="best_visual"))
+
+    wavelengths = {wavelength for _url, wavelength in normalizer.calls}
+    # The JWST NIRCam view is infrared (2200 nm proxy); the HST visible view
+    # maps to None so grayscale visible previews are never tinted.
+    assert wavelengths == {2200.0, None}
+    # Returning None keeps the archive URLs untouched.
+    for view in bundle.views:
+        assert view.asset is not None
+        assert str(view.asset.asset_url).startswith("https://mast.stsci.edu")
+        assert "by AstroLens from the archive preview" not in str(view.asset.processing_note)
+
+
+def test_preview_normalizer_tinted_result_marks_false_color() -> None:
+    resolver = LiveIngestionService(
+        repo=EvidenceRepository(),
+        connector=FakeSesameConnector(),
+    )
+    normalizer = FakePreviewNormalizer(
+        NormalizedResult(
+            asset_url="/v1/rendered/prevnorm_tinted.png",
+            width=512,
+            height=512,
+            cropped=False,
+            rotated_deg=None,
+            tinted_band="infrared",
+        )
+    )
+    service = LiveEvidenceService(
+        resolver=resolver,
+        mast=VisualRankingMastConnector(),
+        preview_normalizer=normalizer,
+    )
+
+    bundle = asyncio.run(service.bundle_for_query("M87", max_views=2, rank_mode="best_visual"))
+
+    for view in bundle.views:
+        assert view.asset is not None
+        assert view.asset.false_color is True
+        assert "Infrared-band-tinted by AstroLens" in str(view.asset.processing_note)
