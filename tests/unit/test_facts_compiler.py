@@ -154,6 +154,52 @@ def test_every_fact_is_cited_and_traceable() -> None:
                 assert cited in citation_ids, cited
 
 
+class _MustNotBeCalledSimbad:
+    async def fetch_measurements(self, main_id: str) -> None:
+        raise AssertionError("SIMBAD must not be queried for solar-system objects")
+
+
+def test_curated_planetary_facts_bypass_simbad() -> None:
+    service = FactsCompilerService(simbad=_MustNotBeCalledSimbad())  # type: ignore[arg-type]
+    saturn = repository.get_object("astro:object:saturn")
+
+    result = asyncio.run(service.facts_for_object(saturn))
+
+    by_kind = {fact.quantity_kind: fact for fact in result.facts}
+    assert by_kind["diameter"].value == pytest.approx(120_536.0)
+    assert by_kind["density"].scale_comparison == "less dense than water"
+    assert result.warnings == []
+    assert {citation.id for citation in result.citations} == {
+        "citation:nssdc:planetary-fact-sheet"
+    }
+    for fact in result.facts:
+        assert fact.citation_ids == ["citation:nssdc:planetary-fact-sheet"]
+        assert fact.source_fields == ["nssdc.planetary_fact_sheet"]
+
+
+def test_all_seeded_solar_system_objects_have_curated_facts() -> None:
+    from astrolens.data.seed import CURATED_OBJECT_FACTS
+
+    for slug in ("jupiter", "saturn", "uranus", "neptune", "titan", "io"):
+        facts = CURATED_OBJECT_FACTS[f"astro:object:{slug}"]
+        assert facts, slug
+        for fact in facts:
+            assert fact.citation_ids and fact.source_fields, fact.id
+
+
+def test_uncurated_ephemeris_object_gets_teaching_warning_not_simbad_lookup() -> None:
+    service = FactsCompilerService(simbad=_MustNotBeCalledSimbad())  # type: ignore[arg-type]
+    mars = M87.model_copy(
+        update={"name": "Mars", "id": "astro:object:mars", "ephemeris_object": True}
+    )
+
+    result = asyncio.run(service.facts_for_object(mars))
+
+    assert result.facts == []
+    assert result.warnings[0].code == "FACTS_EPHEMERIS_OBJECT"
+    assert "solar-system body" in result.warnings[0].message
+
+
 def test_facts_for_object_degrades_to_warning_on_source_failure() -> None:
     class FailingSimbad:
         async def fetch_measurements(self, main_id: str) -> None:
