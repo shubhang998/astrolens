@@ -197,9 +197,12 @@ def test_show_object_prefers_composite_hero_and_bands_panels() -> None:
     assert live.calls[0]["include_facts"] is True
     assert live.calls[0]["size"] == "thumbnail"
     assert payload["hero_view"]["id"] == "view:composite"
-    panel_bands = [panel["band_family"] for panel in payload["panels"]]
-    assert panel_bands == ["visible", "xray", "radio", "infrared"]  # one per band
+    # Only the two best images are shown: the composite hero plus one distinct
+    # supporting band panel.
+    assert len(payload["views"]) == 2
     assert payload["views"][0]["id"] == "view:composite"
+    assert len(payload["panels"]) == 1
+    assert payload["panels"][0]["band_family"] == "visible"
     assert len(payload["credits"]) == len(payload["views"])
     assert all("Credit" in credit["credit_line"] for credit in payload["credits"])
     assert payload["suggested_followups"]
