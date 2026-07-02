@@ -1,13 +1,21 @@
 # ruff: noqa: E501
 """ChatGPT Apps SDK gallery component resources."""
 
+import hashlib
 import os
 from urllib.parse import urlsplit
 
-GALLERY_URI = "ui://astrolens/gallery.html"
+# The URI embeds a hash of the widget HTML: ChatGPT caches widget templates
+# by URI, so content changes must change the URI to actually reach users.
+GALLERY_URI_PREFIX = "ui://astrolens/gallery"
+
+
+def _gallery_uri(html: str) -> str:
+    digest = hashlib.sha256(html.encode("utf-8")).hexdigest()[:10]
+    return f"{GALLERY_URI_PREFIX}-{digest}.html"
 
 GALLERY_RESOURCE = {
-    "uri": GALLERY_URI,
+    "uri": GALLERY_URI_PREFIX + ".html",  # finalized after GALLERY_HTML below
     "name": "AstroLens image gallery",
     "description": "Interactive gallery for AstroLens evidence views and observation previews.",
     "mimeType": "text/html",
@@ -391,3 +399,7 @@ GALLERY_HTML = """
 </body>
 </html>
 """.strip()
+
+
+GALLERY_URI = _gallery_uri(GALLERY_HTML)
+GALLERY_RESOURCE["uri"] = GALLERY_URI
