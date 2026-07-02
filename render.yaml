@@ -7,7 +7,17 @@ services:
     healthCheckPath: /v1/health
     # The image entrypoint (docker/entrypoint.sh) binds Render's assigned
     # $PORT and adopts $RENDER_EXTERNAL_URL as the public base URL.
+    # The persistent disk keeps rendered images across deploys/restarts so the
+    # service never returns to a stone-cold cache.
+    disk:
+      name: astrolens-cache
+      mountPath: /var/astrolens-cache
+      sizeGB: 5
     envVars:
       - key: ASTROLENS_ENV
         value: development
+      - key: ASTROLENS_RENDER_CACHE_DIR
+        value: /var/astrolens-cache/renders
+      - key: ASTROLENS_WARM_CACHE
+        value: "1"
     autoDeploy: true
