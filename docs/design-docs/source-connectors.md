@@ -154,8 +154,8 @@ Current implementation:
 
 - Dependency: optional `astrolens[skyview]`, backed by `astroquery.skyview`.
 - Query style: AstroLens resolves the object first, then sends numeric ICRS coordinates to SkyView.
-- Default surveys: SDSSg/r/i for visible RGB where available, 2MASS-K, GALEX Near UV, RASS-Cnt Broad, VLA FIRST, Planck 217 (millimeter), and Fermi 5 (gamma).
-- Fallback/custom surveys: DSS2 Blue/Red/IR, NVSS, WISE 3.4/12/22, IRIS 100, Planck 353, and Halpha remain supported when users need wider coverage.
+- Default surveys: SDSSg/r/i for visible RGB where available, 2MASS-K, GALEX Near UV, RASS-Cnt Broad, VLA FIRST, Planck 217 I (millimeter), and Fermi 5 (gamma).
+- Fallback/custom surveys: DSS2 Blue/Red/IR, NVSS, WISE 3.4/12/22, IRIS 100, Planck 353 I, and H-Alpha Comp remain supported when users need wider coverage.
 - Visual modes: `detail`, `context`, and `wide` select bounded radius/pixel presets before SkyView is called; explicit radius/pixel inputs override the preset.
 - Product shape: HTTPS generated FITS URLs with survey name, band family, source record ID, and raw metadata.
 - Asset shape: AstroLens-rendered PNG previews or RGB composites from those FITS files, with rendering caveats.

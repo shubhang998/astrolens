@@ -164,7 +164,9 @@ def category_adql(
         clauses.append(f"f.V <= {float(magnitude_limit):.2f}")
     if sample_modulus is not None and sample_residue is not None:
         clauses.append(f"MOD(b.oid, {int(sample_modulus)}) = {int(sample_residue)}")
-    order = "ORDER BY b.oid" if sample_modulus is not None else "ORDER BY b.nbref DESC"
+    # SIMBAD's ADQL parser rejects table-qualified columns in ORDER BY; both
+    # oid and nbref are unambiguous (only `basic` carries them in this join).
+    order = "ORDER BY oid" if sample_modulus is not None else "ORDER BY nbref DESC"
     return (
         f"SELECT TOP {bounded_limit} b.main_id, b.otype, b.ra, b.dec, "
         "b.rvz_redshift, b.galdim_majaxis, f.V "
@@ -199,7 +201,7 @@ class SimbadTapConnector:
 
     name = "SIMBAD TAP"
 
-    def __init__(self, client: Any | None = None, *, timeout_seconds: float = 15.0) -> None:
+    def __init__(self, client: Any | None = None, *, timeout_seconds: float = 30.0) -> None:
         self.client = client
         self.timeout_seconds = timeout_seconds
 

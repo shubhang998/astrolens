@@ -127,9 +127,9 @@ def test_gamma_and_millimeter_bands_request_new_surveys() -> None:
         )
     )
 
-    assert client.calls[0]["survey"] == ["Planck 217", "Fermi 5"] or client.calls[0][
+    assert client.calls[0]["survey"] == ["Planck 217 I", "Fermi 5"] or client.calls[0][
         "survey"
-    ] == ["Fermi 5", "Planck 217"]
+    ] == ["Fermi 5", "Planck 217 I"]
     assert {product.band_family for product in result.products} == {
         BandFamily.GAMMA,
         BandFamily.MILLIMETER,
