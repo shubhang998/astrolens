@@ -257,7 +257,12 @@ def _is_color_view(view: View) -> bool:
         return True
     if len(asset.source_product_ids) >= 3:
         return True  # three-channel composite (e.g. SDSS/DSS2 RGB)
-    return asset.false_color is True  # band-tinted single-channel render
+    # false_color is only a reliable color signal on images AstroLens rendered
+    # itself (band-tinted single-channel renders). Archive previews set the
+    # flag by band, and a non-visible archive preview is usually grayscale.
+    return (
+        str(asset.visual_tier) == "astrolens_rendered" and asset.false_color is True
+    )
 
 
 def _distinct_panels(hero: View | None, views: list[View]) -> list[View]:
