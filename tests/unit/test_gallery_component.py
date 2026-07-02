@@ -11,7 +11,7 @@ def test_widget_renders_facts_panel_and_bounded_media() -> None:
     for token in (
         "object_facts",
         "why_interesting",
-        "fact_collectItems".replace("fact_", ""),  # collectItems present
+        "collectItems",
         "renderPanel",
         "The numbers",
         "credit_line",

@@ -283,8 +283,9 @@ def _why_interesting(facts: list[Fact]) -> str | None:
     )
     by_kind = {fact.quantity_kind: fact for fact in facts}
     ordered = [by_kind[kind] for kind in preferred_order if kind in by_kind]
-    # Fall back to whatever facts exist so every object gets a narrative.
-    chosen = ordered or list(facts)
+    # Fall back to whatever facts exist so every object gets a narrative —
+    # except classification, which already leads the headline.
+    chosen = ordered or [fact for fact in facts if fact.quantity_kind != "classification"]
     sentences: list[str] = []
     for fact in chosen:
         sentence = fact.claim
