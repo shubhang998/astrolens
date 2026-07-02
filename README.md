@@ -29,8 +29,22 @@ This repository now implements a fixture-backed AstroLens V1 slice:
 - `GET /v1/products/{product_id}/raw-links`
 - `POST /v1/compare`
 - `POST /v1/render`
+- `POST /v1/render/fits-plan` (renders calibrated FITS from allowlisted archive hosts only)
+- `GET /v1/rendered/{filename}`
 - `GET /v1/jobs/{job_id}`
-- JSON-RPC style `/mcp` endpoint with read-only tools
+- `GET /v1/objects/{object_id}/facts` (compiled, cited SIMBAD measurements + derivations)
+- JSON-RPC 2.0 `/mcp` endpoint with read-only tools (strict parse/batch/notification
+  handling, enforced response byte cap, ambiguity surfaced instead of guessed)
+- hero MCP tools: `show_object` (best cross-source multi-wavelength composite with
+  credits and facts), `explain_object` (deterministic cited facts: distance, size,
+  brightness, lookback time), `find_objects` (SIMBAD category/region search with
+  server-side random sampling)
+- cross-source composites: band recipes by object type mix MAST + SkyView FITS in
+  one rendered image with per-channel provenance
+- moving targets (Saturn, Jupiter, ...) route to MAST target-name search instead of
+  a wrong-field cone search; SkyView is excluded with a teaching warning
+- full-spectrum SkyView coverage including WISE (mid-IR), Planck (millimeter),
+  and Fermi (gamma) surveys
 - compact MCP response profile with bounded list inputs and structured source errors
 - `ArchiveConnector` protocol and normalized connector candidates
 - curated local seed evidence for 50 objects
@@ -95,6 +109,10 @@ For MCP/ChatGPT, call `get_object_evidence` or `compare_wavelengths` with:
 Live visual requests support `visual_mode=detail|context|wide`. The mode selects
 bounded radius and SkyView pixel presets; explicit `radius_deg` or `pixels`
 values override the preset. `context` preserves the previous default behavior.
+
+FITS render downloads are restricted to trusted archive hosts (`stsci.edu`,
+`gsfc.nasa.gov`); extend with the `ASTROLENS_RENDER_URL_ALLOWLIST` environment
+variable (comma-separated host suffixes).
 
 SkyView images are generated survey cutouts, not official press images. The
 default visible view uses SDSSg/r/i RGB compositing when available, with DSS
