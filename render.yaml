@@ -26,4 +26,9 @@ services:
       # (warmer + user calls share this budget).
       - key: ASTROLENS_MAX_CONCURRENT_RENDERS
         value: "3"
+      # Set in the Render dashboard (never in the repo): enables the Sonnet 5
+      # interpretation layer and vision ranking. Everything degrades to
+      # deterministic behavior when absent.
+      - key: ANTHROPIC_API_KEY
+        sync: false
     autoDeploy: true
