@@ -95,9 +95,12 @@ GALLERY_HTML = """
     }
     .mosaic { display: grid; gap: 2px; background: var(--line); }
     .mosaic.two { grid-template-columns: 1.9fr 1fr; }
+    .mosaic.three { grid-template-columns: 2fr 1fr; grid-template-rows: 150px 150px; }
     .tile { position: relative; background: #04060a; overflow: hidden; }
     .mosaic.one .tile { aspect-ratio: 16 / 9; }
     .mosaic.two .tile { aspect-ratio: auto; height: 300px; }
+    .mosaic.three .tile { aspect-ratio: auto; height: auto; }
+    .mosaic.three .tile:first-child { grid-row: span 2; }
     .tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .tile a { display: block; width: 100%; height: 100%; }
     .chip {
@@ -112,6 +115,12 @@ GALLERY_HTML = """
     .subtitle { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
     .desc { margin: 12px 0 0; font-size: 13.5px; line-height: 1.55; color: var(--text); }
     .desc .more { color: var(--muted); }
+    .ai-badge {
+      display: inline-block; margin-right: 6px; vertical-align: 1px;
+      border: 1px solid var(--line); background: var(--card-2); color: var(--muted);
+      border-radius: 999px; padding: 1px 8px; font-size: 10px; font-weight: 700;
+      letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap;
+    }
     .facts { margin: 14px 0 0; border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 7px; }
     .factrow { font-size: 13px; line-height: 1.5; }
     .factrow b { font-weight: 700; color: var(--text); }
@@ -141,6 +150,8 @@ GALLERY_HTML = """
     @media (max-width: 480px) {
       .mosaic.two { grid-template-columns: 1fr; }
       .mosaic.two .tile { height: 220px; }
+      .mosaic.three { grid-template-columns: 1fr 1fr; grid-template-rows: 180px 110px; }
+      .mosaic.three .tile:first-child { grid-row: auto; grid-column: span 2; }
     }
     @media (prefers-color-scheme: light) {
       :root {
@@ -233,7 +244,7 @@ GALLERY_HTML = """
       const coords = obj.coordinates
         ? "RA " + Number(obj.coordinates.ra_deg).toFixed(3) + " \u00b7 Dec " + Number(obj.coordinates.dec_deg).toFixed(3)
         : "";
-      const items = collectItems(output).slice(0, 2);
+      const items = collectItems(output).slice(0, 3);
 
       renderMosaic(items);
       document.getElementById("title").textContent = obj.name || obj.id || "AstroLens";
@@ -251,7 +262,7 @@ GALLERY_HTML = """
       mosaic.innerHTML = "";
       if (!items.length) { mosaic.hidden = true; return; }
       mosaic.hidden = false;
-      mosaic.className = "mosaic " + (items.length === 1 ? "one" : "two");
+      mosaic.className = "mosaic " + (items.length === 1 ? "one" : items.length === 2 ? "two" : "three");
       for (const item of items) {
         const tile = document.createElement("div");
         tile.className = "tile";
@@ -267,6 +278,13 @@ GALLERY_HTML = """
 
     function renderDescription(output) {
       const desc = document.getElementById("desc");
+      const summary = (output.summary && output.summary.text) ? String(output.summary.text) : "";
+      if (summary) {
+        // Labeled interpretation: the facts rows below stay the canonical data.
+        desc.hidden = false;
+        desc.innerHTML = `<span class="ai-badge">AI summary · Sonnet</span> ${escapeHtml(summary)}`;
+        return;
+      }
       const headline = output.headline ? String(output.headline) : "";
       const why = output.why_interesting ? String(output.why_interesting) : "";
       if (!headline && !why) { desc.hidden = true; return; }

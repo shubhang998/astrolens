@@ -34,6 +34,7 @@ from astrolens.core.models import (
 from astrolens.mcp.hardening import MCP_MAX_RESPONSE_BYTES
 from astrolens.services.facts import ObjectFactsResult
 from astrolens.services.showcase import ShowcaseService
+from astrolens.services.summarizer import Summary
 
 _REUSE = ReusePolicy(id="reuse:test", credit_text="Credit the test archive")
 _OBJECT = CelestialObject(
@@ -165,11 +166,64 @@ class FakeSimbad:
         )
 
 
-def _service(bundle: EvidenceBundle | None = None, simbad: Any = None) -> ShowcaseService:
+class _UnavailableClient:
+    """LLM stub: never configured, so tests never depend on env keys/network."""
+
+    model = "test-model"
+
+    def available(self) -> bool:
+        return False
+
+    async def complete(self, **kwargs: Any) -> str:
+        raise AssertionError("LLM must not be called when unavailable")
+
+
+class FakeVision:
+    """Vision ranker stub returning canned scores (or raising)."""
+
+    def __init__(self, scores: dict[str, float] | None = None, *, fail: bool = False) -> None:
+        self.scores = scores or {}
+        self.fail = fail
+        self.calls: list[str] = []
+        self.client = _UnavailableClient() if scores is None and not fail else _OnClient()
+
+    async def rank_views(self, obj_name: str, views: list[View]) -> dict[str, float]:
+        self.calls.append(obj_name)
+        if self.fail:
+            raise RuntimeError("vision exploded")
+        return self.scores
+
+
+class _OnClient(_UnavailableClient):
+    def available(self) -> bool:
+        return True
+
+
+class FakeSummarizer:
+    """Summarizer stub returning a canned summary (or None)."""
+
+    def __init__(self, summary: Summary | None = None) -> None:
+        self.summary = summary
+        self.calls: list[str] = []
+        self.client = _OnClient() if summary is not None else _UnavailableClient()
+
+    async def summarize(self, obj: Any, facts: Any, citations: Any, views: Any) -> Summary | None:
+        self.calls.append(obj.name)
+        return self.summary
+
+
+def _service(
+    bundle: EvidenceBundle | None = None,
+    simbad: Any = None,
+    vision: Any = None,
+    summarizer: Any = None,
+) -> ShowcaseService:
     return ShowcaseService(
         live_sources=FakeLiveSources(bundle or _bundle([])),  # type: ignore[arg-type]
         facts=FakeFacts(),  # type: ignore[arg-type]
         simbad=simbad or FakeSimbad(),  # type: ignore[arg-type]
+        vision=vision or FakeVision(),  # type: ignore[arg-type]
+        summarizer=summarizer or FakeSummarizer(),  # type: ignore[arg-type]
     )
 
 
@@ -189,6 +243,8 @@ def test_show_object_prefers_composite_hero_and_bands_panels() -> None:
         live_sources=live,  # type: ignore[arg-type]
         facts=FakeFacts(),  # type: ignore[arg-type]
         simbad=FakeSimbad(),  # type: ignore[arg-type]
+        vision=FakeVision(),  # type: ignore[arg-type]
+        summarizer=FakeSummarizer(),  # type: ignore[arg-type]
     )
 
     payload = asyncio.run(service.show_object("M87"))
@@ -197,12 +253,12 @@ def test_show_object_prefers_composite_hero_and_bands_panels() -> None:
     assert live.calls[0]["include_facts"] is True
     assert live.calls[0]["size"] == "thumbnail"
     assert payload["hero_view"]["id"] == "view:composite"
-    # Only the two best images are shown: the composite hero plus one distinct
-    # supporting band panel.
-    assert len(payload["views"]) == 2
+    # Only the three best images are shown: the composite hero plus the best
+    # genuinely different supporting band panels.
+    assert len(payload["views"]) == 3
     assert payload["views"][0]["id"] == "view:composite"
-    assert len(payload["panels"]) == 1
-    assert payload["panels"][0]["band_family"] == "visible"
+    assert len(payload["panels"]) == 2
+    assert [panel["band_family"] for panel in payload["panels"]] == ["visible", "xray"]
     assert len(payload["credits"]) == len(payload["views"])
     assert all("Credit" in credit["credit_line"] for credit in payload["credits"])
     assert payload["suggested_followups"]
@@ -258,6 +314,101 @@ def test_show_object_does_not_show_the_same_image_twice() -> None:
 
     urls = [(v.get("asset") or {}).get("asset_url") for v in payload["views"]]
     assert len([u for u in urls if u]) == len(set(u for u in urls if u))
+
+
+def test_show_object_orders_views_by_vision_score_when_available() -> None:
+    views = [
+        _view("visible-a", BandFamily.VISIBLE),
+        _view("visible-b", BandFamily.VISIBLE),
+        _view("xray", BandFamily.XRAY),
+        _view("radio", BandFamily.RADIO),
+    ]
+    vision = FakeVision(
+        {"view:radio": 0.95, "view:xray": 0.9, "view:visible-b": 0.5, "view:visible-a": 0.2}
+    )
+    service = _service(_bundle(views), vision=vision)
+
+    payload = asyncio.run(service.show_object("M87"))
+
+    assert vision.calls == ["M87"]
+    assert [v["id"] for v in payload["views"]] == ["view:radio", "view:xray", "view:visible-b"]
+    assert payload["hero_view"]["id"] == "view:radio"
+    assert [p["id"] for p in payload["panels"]] == ["view:xray", "view:visible-b"]
+
+
+def test_vision_selection_caps_same_band_at_two_and_skips_low_detail_hero() -> None:
+    blob = _view("blob", BandFamily.VISIBLE)
+    blob.scores = ViewScores(overall=0.9, preview_quality=0.1)  # low-detail render
+    views = [
+        blob,
+        _view("visible-a", BandFamily.VISIBLE),
+        _view("visible-b", BandFamily.VISIBLE),
+        _view("ir", BandFamily.INFRARED),
+    ]
+    vision = FakeVision(
+        {"view:blob": 0.99, "view:visible-a": 0.9, "view:visible-b": 0.8, "view:ir": 0.7}
+    )
+    service = _service(_bundle(views), vision=vision)
+
+    payload = asyncio.run(service.show_object("M87"))
+
+    # The low-detail view cannot take the hero slot even with the top vision
+    # score (it may still appear as a panel), and at most two views of one
+    # band family are shown.
+    assert payload["hero_view"]["id"] == "view:visible-a"
+    assert [v["id"] for v in payload["views"]] == ["view:visible-a", "view:blob", "view:ir"]
+
+
+def test_show_object_falls_back_to_deterministic_order_when_vision_fails() -> None:
+    composite = _view("composite", BandFamily.MULTIWAVELENGTH)
+    views = [composite, _view("visible", BandFamily.VISIBLE), _view("xray", BandFamily.XRAY)]
+    service = _service(_bundle(views), vision=FakeVision(fail=True))
+
+    payload = asyncio.run(service.show_object("M87"))
+
+    assert payload["hero_view"]["id"] == "view:composite"
+    assert [v["id"] for v in payload["views"]] == ["view:composite", "view:visible", "view:xray"]
+
+
+def test_show_object_includes_labeled_summary_when_generated() -> None:
+    summary = Summary(
+        text="M87 lies about 62 million light-years away. [2]",
+        citation_ids=["citation:simbad:tap"],
+        model="test-model",
+    )
+    summarizer = FakeSummarizer(summary)
+    service = _service(_bundle([_view("visible", BandFamily.VISIBLE)]), summarizer=summarizer)
+
+    payload = asyncio.run(service.show_object("M87"))
+
+    assert summarizer.calls == ["M87"]
+    assert payload["summary"]["text"].startswith("M87 lies")
+    assert payload["summary"]["citation_ids"] == ["citation:simbad:tap"]
+    assert payload["summary"]["generated"] is True
+
+
+def test_show_object_omits_summary_without_llm() -> None:
+    service = _service(_bundle([_view("visible", BandFamily.VISIBLE)]))
+
+    payload = asyncio.run(service.show_object("M87"))
+
+    assert "summary" not in payload
+
+
+def test_explain_object_includes_summary_when_generated() -> None:
+    summary = Summary(
+        text="M87 is an active galaxy about 62 million light-years away. [1,2]",
+        citation_ids=["citation:simbad:tap"],
+        model="test-model",
+    )
+    service = _service(summarizer=FakeSummarizer(summary))
+
+    payload = asyncio.run(service.explain_object("M87"))
+
+    assert payload["summary"]["citation_ids"] == ["citation:simbad:tap"]
+
+    plain = asyncio.run(_service().explain_object("M87"))
+    assert "summary" not in plain
 
 
 def test_planet_facts_produce_headline_and_narrative() -> None:

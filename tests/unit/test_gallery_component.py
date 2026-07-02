@@ -7,7 +7,7 @@ from astrolens.mcp.gallery_component import (
 
 def test_widget_renders_facts_panel_and_bounded_media() -> None:
     # Structural guards for the ChatGPT widget: it reads compiled facts,
-    # narrative, and credits, and caps the image grid at two.
+    # narrative, and credits, and caps the image grid at three.
     for token in (
         "object_facts",
         "why_interesting",
@@ -17,9 +17,20 @@ def test_widget_renders_facts_panel_and_bounded_media() -> None:
         "suggested_followups",
         "sendFollowup",
         "credit_line",
-        ".slice(0, 2)",
+        ".slice(0, 3)",
+        "mosaic.three",
     ):
         assert token in GALLERY_HTML, token
+
+
+def test_widget_labels_llm_summary_and_keeps_fact_fallback() -> None:
+    # The AI summary paragraph must be clearly labeled as interpretation, and
+    # the deterministic headline/why_interesting fallback must remain for
+    # responses without a summary.
+    assert "output.summary" in GALLERY_HTML
+    assert "AI summary" in GALLERY_HTML
+    assert "output.headline" in GALLERY_HTML
+    assert "output.why_interesting" in GALLERY_HTML
 
 
 def test_widget_is_self_contained_and_url_safe() -> None:
