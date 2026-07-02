@@ -28,7 +28,10 @@ from astrolens.services.live_sources import (
 )
 from astrolens.services.repository import repository
 
+# How many candidate views to fetch/rank (the band recipe needs several to
+# build a composite) versus how many images the widget actually shows.
 MAX_PANELS = 4
+MAX_SHOWN_IMAGES = 2
 MAX_FIND_RESULTS = 10
 MAX_FIND_RADIUS_DEG = 15.0
 
@@ -73,7 +76,11 @@ class ShowcaseService:
             size="thumbnail",
         )
         hero = bundle.views[0] if bundle.views else None
-        panels = _band_panels(bundle.views[1:] if hero else bundle.views)
+        # Show only the two best images: the hero plus the best distinct-band
+        # supporting view. More detail lives in the compiled facts panel.
+        panels = _band_panels(bundle.views[1:] if hero else bundle.views)[
+            : MAX_SHOWN_IMAGES - 1
+        ]
         shown_views = ([hero] if hero else []) + panels
         return {
             "object": bundle.object.model_dump(mode="json"),

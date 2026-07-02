@@ -65,175 +65,138 @@ GALLERY_HTML = """
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AstroLens Gallery</title>
+  <title>AstroLens</title>
   <style>
     :root {
       color-scheme: light dark;
-      --bg: #0d1117;
-      --panel: #151b23;
-      --panel-soft: #1f2630;
-      --text: #edf2f7;
-      --muted: #9ba7b4;
-      --line: #2e3743;
-      --accent: #5eead4;
-      --warn: #fbbf24;
+      --bg: #0a0e17;
+      --bg-2: #10161f;
+      --panel: #141b26;
+      --panel-soft: #1b2430;
+      --text: #eef2f8;
+      --muted: #9aa7b6;
+      --faint: #66727f;
+      --line: #262f3c;
+      --accent: #6ee7d0;
+      --accent-2: #8ab4ff;
+      --warn: #f8c46a;
+      --radius: 14px;
+      --shadow: 0 10px 30px rgba(0,0,0,0.35);
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: var(--bg);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       color: var(--text);
+      background:
+        radial-gradient(1100px 500px at 78% -8%, rgba(138,180,255,0.12), transparent 60%),
+        radial-gradient(900px 500px at 8% 108%, rgba(110,231,208,0.10), transparent 55%),
+        var(--bg);
+      -webkit-font-smoothing: antialiased;
     }
-    .shell { padding: 14px; }
-    .header {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: flex-start;
-      padding-bottom: 12px;
-      border-bottom: 1px solid var(--line);
+    .shell { padding: 18px; max-width: 900px; margin: 0 auto; }
+    .hero { margin-bottom: 16px; }
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+      color: var(--accent); font-weight: 650; margin-bottom: 8px;
     }
-    .title {
-      font-size: 16px;
-      line-height: 1.25;
-      font-weight: 700;
-      margin: 0;
+    .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+    .title { font-size: 26px; line-height: 1.12; font-weight: 750; margin: 0; letter-spacing: -0.01em; }
+    .sub { margin: 7px 0 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+    .headline {
+      margin: 12px 0 0; font-size: 15px; line-height: 1.5; color: var(--text);
+      border-left: 2px solid var(--accent); padding-left: 12px;
     }
-    .sub {
-      margin: 4px 0 0;
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.4;
+    .layout { display: grid; grid-template-columns: 1fr; gap: 16px; }
+    @media (min-width: 680px) { .layout { grid-template-columns: 1.15fr 1fr; align-items: start; } }
+    .media { display: grid; gap: 12px; min-width: 0; }
+    .figure {
+      border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
+      background: var(--panel); box-shadow: var(--shadow);
     }
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      height: 24px;
-      border: 1px solid var(--line);
-      background: var(--panel-soft);
-      border-radius: 999px;
-      padding: 0 9px;
-      color: var(--muted);
-      font-size: 12px;
-      white-space: nowrap;
+    .frame { position: relative; background: #04060a; aspect-ratio: 4 / 3; overflow: hidden; }
+    .frame img { width: 100%; height: 100%; object-fit: contain; display: block; }
+    .chip {
+      position: absolute; top: 10px; left: 10px;
+      background: rgba(6,10,18,0.72); backdrop-filter: blur(4px);
+      border: 1px solid rgba(255,255,255,0.14); color: var(--text);
+      border-radius: 999px; padding: 4px 10px; font-size: 11px; font-weight: 600;
     }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 12px;
-      padding-top: 14px;
-    }
-    .card {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      overflow: hidden;
-      background: var(--panel);
-      min-width: 0;
-    }
-    .imageWrap {
-      position: relative;
-      background: #05070a;
-      aspect-ratio: 1.25 / 1;
-      overflow: hidden;
-    }
-    .imageWrap img {
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-      display: block;
-    }
-    .quality {
-      position: absolute;
-      top: 8px;
-      left: 8px;
-      background: rgba(3, 7, 18, 0.76);
-      border: 1px solid rgba(255,255,255,0.16);
-      color: var(--text);
-      border-radius: 999px;
-      padding: 4px 8px;
-      font-size: 11px;
-    }
-    .body { padding: 10px; }
-    .label {
-      font-size: 13px;
-      line-height: 1.35;
-      font-weight: 650;
-      margin: 0 0 8px;
-    }
-    .meta {
-      display: grid;
-      gap: 4px;
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.35;
-      margin-bottom: 9px;
-    }
-    .links {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    a {
-      color: var(--accent);
-      text-decoration: none;
-      font-size: 12px;
-      word-break: break-word;
-    }
+    .band-chip { right: 10px; left: auto; color: var(--accent-2); }
+    .cap { padding: 11px 13px 13px; }
+    .cap-title { font-size: 13px; font-weight: 650; line-height: 1.35; margin: 0 0 5px; }
+    .cap-meta { color: var(--muted); font-size: 12px; line-height: 1.4; }
+    .cap-links { margin-top: 9px; display: flex; flex-wrap: wrap; gap: 12px; }
+    a { color: var(--accent); text-decoration: none; font-size: 12px; font-weight: 600; word-break: break-word; }
     a:hover { text-decoration: underline; }
+    .panel {
+      border: 1px solid var(--line); border-radius: var(--radius);
+      background: linear-gradient(180deg, var(--panel), var(--bg-2));
+      padding: 15px; box-shadow: var(--shadow); min-width: 0;
+    }
+    .panel h2 {
+      font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--faint); margin: 0 0 12px; font-weight: 700;
+    }
+    .why { color: var(--muted); font-size: 13px; line-height: 1.55; margin: 0 0 14px; }
+    .facts { display: grid; gap: 11px; }
+    .fact { display: grid; gap: 3px; padding-bottom: 11px; border-bottom: 1px solid var(--line); }
+    .fact:last-child { border-bottom: 0; padding-bottom: 0; }
+    .fact-kind {
+      font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--accent); font-weight: 700;
+    }
+    .fact-claim { font-size: 13px; line-height: 1.45; color: var(--text); }
+    .fact-scale { font-size: 12.5px; line-height: 1.4; color: var(--accent-2); font-style: italic; }
+    .credits { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+    .credits .lbl { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+    .credit-line { color: var(--muted); font-size: 11.5px; line-height: 1.5; margin-top: 4px; }
+    .cite { color: var(--faint); font-size: 11px; margin-top: 8px; }
     .empty {
-      padding: 18px;
-      border: 1px dashed var(--line);
-      border-radius: 8px;
-      color: var(--muted);
-      font-size: 13px;
-      margin-top: 14px;
+      padding: 20px; border: 1px dashed var(--line); border-radius: var(--radius);
+      color: var(--muted); font-size: 13px; text-align: center;
     }
     .caveats {
-      margin-top: 14px;
-      border-top: 1px solid var(--line);
-      padding-top: 12px;
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.45;
+      margin-top: 16px; border: 1px solid var(--line); border-radius: var(--radius);
+      background: rgba(248,196,106,0.06); padding: 12px 14px;
+      color: var(--muted); font-size: 12px; line-height: 1.5;
     }
-    .caveats strong { color: var(--warn); font-weight: 650; }
+    .caveats .lbl { color: var(--warn); font-weight: 700; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+    .caveats ul { margin: 6px 0 0; padding-left: 16px; }
+    .caveats li { margin: 3px 0; }
     @media (prefers-color-scheme: light) {
       :root {
-        --bg: #ffffff;
-        --panel: #f8fafc;
-        --panel-soft: #eef2f7;
-        --text: #111827;
-        --muted: #526070;
-        --line: #d8dee8;
-        --accent: #047857;
-        --warn: #b45309;
+        --bg: #fbfcfe; --bg-2: #f2f5fa; --panel: #ffffff; --panel-soft: #eef2f7;
+        --text: #10151d; --muted: #4a5666; --faint: #8894a3; --line: #e2e7ef;
+        --accent: #0d9488; --accent-2: #3b6fd4; --warn: #b45309;
+        --shadow: 0 8px 24px rgba(20,30,50,0.08);
       }
-      .quality { background: rgba(255,255,255,0.86); color: var(--text); }
-      .imageWrap { background: #111827; }
+      .frame { background: #0d151f; }
+      .chip { background: rgba(255,255,255,0.86); color: var(--text); }
     }
   </style>
 </head>
 <body>
   <main class="shell">
-    <section class="header">
-      <div>
-        <h1 class="title" id="title">AstroLens</h1>
-        <p class="sub" id="subtitle"></p>
-      </div>
-      <div class="badge" id="count"></div>
+    <section class="hero">
+      <div class="eyebrow"><span class="dot"></span><span id="eyebrow">AstroLens evidence</span></div>
+      <h1 class="title" id="title">AstroLens</h1>
+      <p class="sub" id="subtitle"></p>
+      <p class="headline" id="headline" hidden></p>
     </section>
-    <section class="grid" id="grid"></section>
+    <div class="layout">
+      <section class="media" id="media"></section>
+      <aside class="panel" id="panel" hidden></aside>
+    </div>
     <section class="empty" id="empty" hidden>No image previews were returned for this result.</section>
     <section class="caveats" id="caveats" hidden></section>
   </main>
   <script>
-    function getOutput() {
-      return (window.openai && window.openai.toolOutput) || {};
-    }
+    function getOutput() { return (window.openai && window.openai.toolOutput) || {}; }
 
     function collectItems(output) {
-      if (Array.isArray(output.views)) {
+      if (Array.isArray(output.views) && output.views.length) {
         return output.views.map(viewToItem).filter(Boolean);
       }
       if (Array.isArray(output.observations)) {
@@ -255,14 +218,8 @@ GALLERY_HTML = """
         instrument: view.instrument || "",
         band: view.band_family || "",
         visualTier: asset.visual_tier || "",
-        selectionReason: asset.selection_reason || "",
         targetValidation: asset.target_validation || null,
-        provenance: asset.provenance || null,
-        productType: bestProduct.product_type || "",
-        calibration: bestProduct.calibration_level || "",
-        sourceRecord: bestProduct.source_record_id || "",
         sourceUrl: bestProduct.download_url || url,
-        caveats: view.caveats || [],
         processed: isProcessedProduct(bestProduct)
       };
     }
@@ -280,23 +237,15 @@ GALLERY_HTML = """
         instrument: observation.instrument || "",
         band: observation.band_family || "",
         visualTier: observation.visual_tier || asset.visual_tier || "",
-        selectionReason: asset.selection_reason || "",
         targetValidation: observation.target_validation || asset.target_validation || null,
-        provenance: observation.provenance || asset.provenance || null,
-        productType: bestProduct.product_type || "",
-        calibration: bestProduct.calibration_level || "",
-        sourceRecord: bestProduct.source_record_id || "",
         sourceUrl: bestProduct.download_url || url,
-        caveats: observation.caveats || [],
         processed: isProcessedProduct(bestProduct)
       };
     }
 
     function isProcessedProduct(product) {
       const text = [
-        product.source_record_id,
-        product.download_url,
-        product.preview_url,
+        product.source_record_id, product.download_url, product.preview_url,
         product.raw_metadata && product.raw_metadata.dataURI,
         product.raw_metadata && product.raw_metadata.productFilename,
         product.raw_metadata && product.raw_metadata.project,
@@ -310,55 +259,112 @@ GALLERY_HTML = """
     function render() {
       const output = getOutput();
       const obj = output.object || {};
-      const title = obj.name || obj.id || "AstroLens";
       const coords = obj.coordinates
-        ? "RA " + Number(obj.coordinates.ra_deg).toFixed(5) + ", Dec " + Number(obj.coordinates.dec_deg).toFixed(5)
+        ? "RA " + Number(obj.coordinates.ra_deg).toFixed(4) + ", Dec " + Number(obj.coordinates.dec_deg).toFixed(4)
         : "";
-      const items = collectItems(output);
+      const items = collectItems(output).slice(0, 2);
 
-      document.getElementById("title").textContent = title;
-      document.getElementById("subtitle").textContent = [obj.type, coords].filter(Boolean).join(" | ");
-      document.getElementById("count").textContent = items.length + " image" + (items.length === 1 ? "" : "s");
+      document.getElementById("eyebrow").textContent = obj.type ? String(obj.type) : "AstroLens evidence";
+      document.getElementById("title").textContent = obj.name || obj.id || "AstroLens";
+      document.getElementById("subtitle").textContent = coords;
 
-      const grid = document.getElementById("grid");
-      grid.innerHTML = "";
-      for (const item of items) {
-        grid.appendChild(renderCard(item));
-      }
-      document.getElementById("empty").hidden = items.length > 0;
+      const headlineEl = document.getElementById("headline");
+      if (output.headline) { headlineEl.textContent = String(output.headline); headlineEl.hidden = false; }
+      else { headlineEl.hidden = true; }
 
-      const caveats = collectCaveats(output, items);
-      const caveatNode = document.getElementById("caveats");
-      caveatNode.hidden = caveats.length === 0;
-      caveatNode.innerHTML = caveats.length
-        ? "<strong>Caveats</strong><br>" + caveats.map(escapeHtml).join("<br>")
-        : "";
+      const media = document.getElementById("media");
+      media.innerHTML = "";
+      for (const item of items) media.appendChild(renderFigure(item));
+      document.getElementById("empty").hidden = items.length > 0 || hasFacts(output);
+
+      renderPanel(output);
+      renderCaveats(output, items);
     }
 
-    function renderCard(item) {
-      const card = document.createElement("article");
-      card.className = "card";
+    function renderFigure(item) {
+      const fig = document.createElement("figure");
+      fig.className = "figure";
+      fig.style.margin = "0";
       const quality = tierLabel(item.visualTier, item.processed);
+      const band = item.band ? String(item.band) : "";
+      const metaBits = [item.facility, item.instrument].filter(Boolean).join(" \\u00b7 ");
       const validation = validationLabel(item.targetValidation);
-      card.innerHTML = `
-        <div class="imageWrap">
+      fig.innerHTML = `
+        <div class="frame">
           <img alt="${escapeHtml(item.label)}" src="${escapeAttribute(safeUrl(item.url))}" loading="lazy" />
-          <div class="quality">${escapeHtml(quality)}</div>
+          <span class="chip">${escapeHtml(quality)}</span>
+          ${band ? `<span class="chip band-chip">${escapeHtml(band)}</span>` : ""}
         </div>
-        <div class="body">
-          <p class="label">${escapeHtml(item.label)}</p>
-          <div class="meta">
-            <div>${escapeHtml(item.facility)}</div>
-            <div>${escapeHtml([item.instrument, item.band].filter(Boolean).join(" | "))}</div>
-            <div>${escapeHtml([item.productType, item.calibration ? "cal " + item.calibration : ""].filter(Boolean).join(" | "))}</div>
-            <div>${escapeHtml(validation)}</div>
-          </div>
-          <div class="links">
-            <a href="${escapeAttribute(safeUrl(item.url))}" target="_blank" rel="noreferrer">Preview</a>
+        <figcaption class="cap">
+          <p class="cap-title">${escapeHtml(item.label)}</p>
+          <div class="cap-meta">${escapeHtml(metaBits)}${validation ? " \\u00b7 " + escapeHtml(validation) : ""}</div>
+          <div class="cap-links">
+            <a href="${escapeAttribute(safeUrl(item.url))}" target="_blank" rel="noreferrer">Open image</a>
             <a href="${escapeAttribute(safeUrl(item.sourceUrl))}" target="_blank" rel="noreferrer">Source product</a>
           </div>
-        </div>`;
-      return card;
+        </figcaption>`;
+      return fig;
+    }
+
+    function hasFacts(output) {
+      return Array.isArray(output.object_facts) && output.object_facts.length > 0;
+    }
+
+    function renderPanel(output) {
+      const panel = document.getElementById("panel");
+      const facts = Array.isArray(output.object_facts) ? output.object_facts : [];
+      const why = output.why_interesting ? String(output.why_interesting) : "";
+      const credits = Array.isArray(output.credits) ? output.credits : [];
+      const factCites = Array.isArray(output.fact_citations) ? output.fact_citations : [];
+      if (!facts.length && !why && !credits.length) { panel.hidden = true; return; }
+      panel.hidden = false;
+
+      let html = "<h2>The numbers</h2>";
+      if (why) html += `<p class="why">${escapeHtml(why)}</p>`;
+      if (facts.length) {
+        html += '<div class="facts">';
+        for (const fact of facts.slice(0, 12)) {
+          const kind = fact.quantity_kind ? String(fact.quantity_kind).replace(/_/g, " ") : "";
+          html += '<div class="fact">';
+          if (kind) html += `<div class="fact-kind">${escapeHtml(kind)}</div>`;
+          html += `<div class="fact-claim">${escapeHtml(fact.claim || "")}</div>`;
+          if (fact.scale_comparison) html += `<div class="fact-scale">${escapeHtml(fact.scale_comparison)}</div>`;
+          html += "</div>";
+        }
+        html += "</div>";
+      }
+      if (credits.length) {
+        html += '<div class="credits"><div class="lbl">Credit</div>';
+        const seen = {};
+        for (const c of credits) {
+          const line = (c && c.credit_line) ? String(c.credit_line) : "";
+          if (!line || seen[line]) continue;
+          seen[line] = true;
+          html += `<div class="credit-line">${escapeHtml(line)}</div>`;
+        }
+        html += "</div>";
+      }
+      if (factCites.length) {
+        const names = [];
+        for (const c of factCites) { if (c && c.title && names.indexOf(c.title) < 0) names.push(String(c.title)); }
+        if (names.length) html += `<div class="cite">Facts from ${escapeHtml(names.slice(0, 3).join(", "))}.</div>`;
+      }
+      panel.innerHTML = html;
+    }
+
+    function renderCaveats(output, items) {
+      const warnings = Array.isArray(output.warnings)
+        ? output.warnings.map((w) => (w && w.message) ? w.message : String(w)) : [];
+      const viewCaveats = [];
+      const rawViews = Array.isArray(output.views) ? output.views : [];
+      for (const v of rawViews) { if (Array.isArray(v.caveats)) viewCaveats.push.apply(viewCaveats, v.caveats); }
+      const all = [];
+      for (const c of warnings.concat(viewCaveats)) { if (c && all.indexOf(c) < 0) all.push(c); }
+      const node = document.getElementById("caveats");
+      if (!all.length) { node.hidden = true; return; }
+      node.hidden = false;
+      node.innerHTML = '<div class="lbl">Caveats</div><ul>' +
+        all.slice(0, 5).map((c) => "<li>" + escapeHtml(c) + "</li>").join("") + "</ul>";
     }
 
     function tierLabel(tier, processed) {
@@ -373,37 +379,21 @@ GALLERY_HTML = """
     }
 
     function validationLabel(validation) {
-      if (!validation || !validation.status) return "target unverified";
+      if (!validation || !validation.status) return "";
       const confidence = typeof validation.confidence === "number"
-        ? " " + Math.round(validation.confidence * 100) + "%"
-        : "";
-      return validation.status.replace(/_/g, " ") + confidence;
-    }
-
-    function collectCaveats(output, items) {
-      const warnings = Array.isArray(output.warnings) ? output.warnings.map((w) => w.message || String(w)) : [];
-      const viewCaveats = items.flatMap((item) => item.caveats || []);
-      return Array.from(new Set([...warnings, ...viewCaveats])).slice(0, 5);
+        ? " " + Math.round(validation.confidence * 100) + "%" : "";
+      return String(validation.status).replace(/_/g, " ") + confidence;
     }
 
     function escapeHtml(value) {
-      return String(value || "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
+      return String(value == null ? "" : value)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
     }
-
-    function escapeAttribute(value) {
-      return escapeHtml(value).replace(/`/g, "&#096;");
-    }
-
+    function escapeAttribute(value) { return escapeHtml(value).replace(/`/g, "&#096;"); }
     function safeUrl(value) {
       const url = String(value || "");
-      if (url.startsWith("https://") || url.startsWith("http://") || url.startsWith("/")) {
-        return url;
-      }
+      if (url.startsWith("https://") || url.startsWith("http://") || url.startsWith("/")) return url;
       return "about:blank";
     }
 
