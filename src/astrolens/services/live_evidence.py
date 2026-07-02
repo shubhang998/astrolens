@@ -2,6 +2,7 @@
 
 import asyncio
 import re
+from typing import Any
 from uuid import uuid4
 
 from astrolens.connectors.mast import (
@@ -458,11 +459,17 @@ class LiveEvidenceService:
         ]
         if not score_targets:
             return
+        analyzer = self.preview_quality
+        # Bounded fan-out: each assessment downloads and decodes an image, so
+        # unbounded gather can spike memory on small instances.
+        semaphore = asyncio.Semaphore(4)
+
+        async def assess(url: str) -> Any:
+            async with semaphore:
+                return await asyncio.to_thread(analyzer.assess_url, url)
+
         results = await asyncio.gather(
-            *[
-                asyncio.to_thread(self.preview_quality.assess_url, url)
-                for _view, url in score_targets
-            ],
+            *[assess(url) for _view, url in score_targets],
             return_exceptions=True,
         )
         for (view, _url), result in zip(score_targets, results, strict=False):
