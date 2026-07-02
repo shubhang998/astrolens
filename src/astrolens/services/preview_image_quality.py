@@ -17,7 +17,7 @@ PreviewQualityStatus = Literal["ok", "unsupported", "failed"]
 # Decoding is the memory hazard, not downloading: an 8MB JPEG of a large
 # mosaic can decode to hundreds of MB of RGB pixels. JPEGs above this pixel
 # count are draft-decoded at reduced scale; other formats are skipped.
-MAX_DECODE_PIXELS = 40_000_000
+MAX_DECODE_PIXELS = 8_000_000
 
 
 class PreviewImageQuality(AstroLensModel):
