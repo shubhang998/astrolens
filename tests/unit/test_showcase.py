@@ -223,13 +223,28 @@ def test_hero_prefers_a_color_view_over_a_grayscale_archive_preview() -> None:
     assert [v["id"] for v in payload["views"]] == ["view:dss2-rgb", "view:hst-single"]
 
 
-def test_hero_stays_ranked_first_when_no_color_view_is_near_the_top() -> None:
+def test_hero_stays_ranked_first_when_no_color_view_exists() -> None:
     views = [_view(f"gray-{i}", BandFamily.VISIBLE) for i in range(4)]
     service = _service(_bundle(views))
 
     payload = asyncio.run(service.show_object("M87"))
 
     assert payload["hero_view"]["id"] == "view:gray-0"
+
+
+def test_archive_preview_false_color_flag_is_not_treated_as_color() -> None:
+    # MAST previews set false_color by band, not by pixels; a grayscale JWST
+    # preview must not beat a real color composite for the hero slot.
+    jwst_preview = _view("jwst-preview", BandFamily.INFRARED)
+    jwst_preview.asset.false_color = True  # type: ignore[union-attr]
+    jwst_preview.asset.visual_tier = VisualAssetTier.PROCESSED_ARCHIVE  # type: ignore[union-attr]
+    composite = _view("dss2-rgb", BandFamily.VISIBLE)
+    composite.asset.source_product_ids = ["p1", "p2", "p3"]  # type: ignore[union-attr]
+    service = _service(_bundle([jwst_preview, composite]))
+
+    payload = asyncio.run(service.show_object("Crab Nebula"))
+
+    assert payload["hero_view"]["id"] == "view:dss2-rgb"
 
 
 def test_show_object_does_not_show_the_same_image_twice() -> None:
