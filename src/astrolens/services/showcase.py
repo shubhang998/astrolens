@@ -244,9 +244,20 @@ def _prefer_color_hero(views: list[View]) -> View | None:
     if not views:
         return None
     for view in views:
-        if _is_color_view(view):
+        if _is_color_view(view) and not _is_low_detail(view):
             return view
     return views[0]
+
+
+def _is_low_detail(view: View) -> bool:
+    """Views down-scored for having almost no real pixels (blob renders)."""
+
+    scores = view.scores
+    return (
+        scores is not None
+        and scores.preview_quality is not None
+        and scores.preview_quality < 0.3
+    )
 
 
 def _is_color_view(view: View) -> bool:
@@ -350,12 +361,12 @@ def _credits(views: list[View]) -> list[dict[str, str]]:
 
 
 def _followups(obj: CelestialObject) -> list[str]:
+    # Phrased as natural questions so the widget can offer them as clickable
+    # chips (and the model can relay them verbatim).
     return [
-        f'explain_object {{"object": "{obj.name}"}} for compiled measurements',
-        f'compare_wavelengths {{"object": "{obj.name}", "live": true}} to see it '
-        "through different bands",
-        f'get_visual_provenance {{"object": "{obj.name}", "live": true}} for how '
-        "each image was made",
+        f"What are the key measurements for {obj.name}?",
+        f"Show {obj.name} across different wavelengths",
+        f"How were these images of {obj.name} made?",
     ]
 
 
