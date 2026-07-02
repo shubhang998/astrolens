@@ -33,6 +33,9 @@ class SkyViewSurveySpec(AstroLensModel):
     band_family: BandFamily
     wavelength_nm: float | None = Field(default=None, gt=0.0)
     description: str
+    # Native survey resolution; SkyView resamples on request, but no amount of
+    # resampling adds detail beyond this. Used to warn on near-blob cutouts.
+    arcsec_per_pixel: float = Field(default=2.0, gt=0.0)
 
 
 class SkyViewProductSummary(AstroLensModel):
@@ -62,126 +65,147 @@ class SkyViewSearchResult(AstroLensModel):
 SURVEY_SPECS: tuple[SkyViewSurveySpec, ...] = (
     SkyViewSurveySpec(
         survey="SDSSg",
+        arcsec_per_pixel=0.4,
         band_family=BandFamily.VISIBLE,
         wavelength_nm=477.0,
         description="SDSS green-band optical image useful for high-quality visible composites",
     ),
     SkyViewSurveySpec(
         survey="SDSSr",
+        arcsec_per_pixel=0.4,
         band_family=BandFamily.VISIBLE,
         wavelength_nm=623.0,
         description="SDSS red-band optical image useful for high-quality visible composites",
     ),
     SkyViewSurveySpec(
         survey="SDSSi",
+        arcsec_per_pixel=0.4,
         band_family=BandFamily.VISIBLE,
         wavelength_nm=763.0,
         description="SDSS near-infrared optical image useful for high-quality visible composites",
     ),
     SkyViewSurveySpec(
         survey="DSS2 Blue",
+        arcsec_per_pixel=1.0,
         band_family=BandFamily.VISIBLE,
         wavelength_nm=445.0,
         description="older all-sky blue photographic plate, useful as a fallback",
     ),
     SkyViewSurveySpec(
         survey="DSS2 Red",
+        arcsec_per_pixel=1.0,
         band_family=BandFamily.VISIBLE,
         wavelength_nm=658.0,
         description="older all-sky red photographic plate, useful as a fallback",
     ),
     SkyViewSurveySpec(
         survey="DSS2 IR",
+        arcsec_per_pixel=1.0,
         band_family=BandFamily.VISIBLE,
         wavelength_nm=806.0,
         description="older all-sky near-infrared photographic plate, useful as a fallback",
     ),
     SkyViewSurveySpec(
         survey="2MASS-J",
+        arcsec_per_pixel=1.0,
         band_family=BandFamily.INFRARED,
         wavelength_nm=1250.0,
         description="near-infrared survey useful for stars and dust-penetrating views",
     ),
     SkyViewSurveySpec(
         survey="2MASS-H",
+        arcsec_per_pixel=1.0,
         band_family=BandFamily.INFRARED,
         wavelength_nm=1650.0,
         description="near-infrared survey useful for stars and dust-penetrating views",
     ),
     SkyViewSurveySpec(
         survey="2MASS-K",
+        arcsec_per_pixel=1.0,
         band_family=BandFamily.INFRARED,
         wavelength_nm=2200.0,
         description="near-infrared survey useful for cooler stars and dust-penetrating views",
     ),
     SkyViewSurveySpec(
         survey="GALEX Near UV",
+        arcsec_per_pixel=1.5,
         band_family=BandFamily.ULTRAVIOLET,
         wavelength_nm=230.0,
         description="ultraviolet survey useful for hot stars and recent star formation",
     ),
     SkyViewSurveySpec(
         survey="RASS-Cnt Broad",
+        arcsec_per_pixel=45.0,
         band_family=BandFamily.XRAY,
         wavelength_nm=1.2,
         description="broad ROSAT X-ray survey useful for energetic gas and compact sources",
     ),
     SkyViewSurveySpec(
         survey="VLA FIRST (1.4 GHz)",
+        arcsec_per_pixel=1.8,
         band_family=BandFamily.RADIO,
         wavelength_nm=214_000_000.0,
         description="higher-resolution 1.4 GHz radio survey useful for jets and compact sources",
     ),
     SkyViewSurveySpec(
         survey="NVSS",
+        arcsec_per_pixel=15.0,
         band_family=BandFamily.RADIO,
         wavelength_nm=214_000_000.0,
         description="wide-coverage 1.4 GHz radio survey useful as a fallback",
     ),
     SkyViewSurveySpec(
         survey="WISE 3.4",
+        arcsec_per_pixel=2.75,
         band_family=BandFamily.INFRARED,
         wavelength_nm=3_400.0,
         description="WISE mid-infrared survey useful for warm dust and embedded sources",
     ),
     SkyViewSurveySpec(
         survey="WISE 12",
+        arcsec_per_pixel=2.75,
         band_family=BandFamily.INFRARED,
         wavelength_nm=12_000.0,
         description="WISE mid-infrared survey useful for star-forming dust emission",
     ),
     SkyViewSurveySpec(
         survey="WISE 22",
+        arcsec_per_pixel=5.5,
         band_family=BandFamily.INFRARED,
         wavelength_nm=22_000.0,
         description="WISE mid-infrared survey useful for the coolest dust structures",
     ),
     SkyViewSurveySpec(
         survey="IRIS 100",
+        arcsec_per_pixel=90.0,
         band_family=BandFamily.INFRARED,
         wavelength_nm=100_000.0,
         description="reprocessed IRAS far-infrared survey useful for cold galactic dust",
     ),
     SkyViewSurveySpec(
         survey="Planck 217 I",
+        arcsec_per_pixel=105.0,
         band_family=BandFamily.MILLIMETER,
         wavelength_nm=1_382_000.0,
         description="Planck 217 GHz survey useful for cold dust and CMB foregrounds",
     ),
     SkyViewSurveySpec(
         survey="Planck 353 I",
+        arcsec_per_pixel=105.0,
         band_family=BandFamily.MILLIMETER,
         wavelength_nm=849_000.0,
         description="Planck 353 GHz survey useful for polarized dust emission",
     ),
     SkyViewSurveySpec(
         survey="Fermi 5",
+        arcsec_per_pixel=360.0,
         band_family=BandFamily.GAMMA,
         wavelength_nm=1.2e-6,
         description="Fermi LAT >1 GeV gamma-ray survey useful for the most energetic sources",
     ),
     SkyViewSurveySpec(
         survey="H-Alpha Comp",
+        arcsec_per_pixel=36.0,
         band_family=BandFamily.VISIBLE,
         wavelength_nm=656.3,
         description="all-sky hydrogen-alpha composite useful for emission nebulae",

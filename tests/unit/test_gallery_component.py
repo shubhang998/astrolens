@@ -13,7 +13,9 @@ def test_widget_renders_facts_panel_and_bounded_media() -> None:
         "why_interesting",
         "collectItems",
         "renderPanel",
-        "The numbers",
+        "Keep exploring",
+        "suggested_followups",
+        "sendFollowup",
         "credit_line",
         ".slice(0, 2)",
     ):

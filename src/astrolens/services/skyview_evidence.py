@@ -12,6 +12,7 @@ from uuid import uuid4
 from astrolens.connectors.skyview import (
     SKYVIEW_DOCS_URL,
     SKYVIEW_SOURCE_URL,
+    SURVEY_SPECS_BY_NAME,
     SkyViewConnector,
     SkyViewProductSummary,
     skyview_connector,
@@ -411,7 +412,7 @@ class SkyViewEvidenceService:
             size=size,
             stretch=stretch,
         )
-        return View(
+        view = View(
             id=f"view:{object_slug}:skyview:{normalize_query(product.survey)}",
             label=f"{object_name} SkyView {product.survey}",
             band_family=product.band_family,
@@ -443,6 +444,8 @@ class SkyViewEvidenceService:
                 overall=0.82 if asset else 0.62,
             ),
         )
+        _apply_low_detail_guard(view, product)
+        return view
 
     def _data_product_for_skyview_product(
         self,
@@ -671,6 +674,41 @@ def _render_concurrency() -> int:
 
 
 skyview_evidence_service = SkyViewEvidenceService()
+
+
+# Below this many real pixels across the field, a cutout is a smooth blob no
+# matter how large it is rendered (e.g. ROSAT at 45"/px over a 0.16 deg field).
+LOW_DETAIL_PIXEL_THRESHOLD = 24.0
+
+
+def _native_detail_pixels(product: SkyViewProductSummary) -> float | None:
+    """How many real survey pixels span this cutout's field of view."""
+
+    spec = SURVEY_SPECS_BY_NAME.get(normalize_query(product.survey))
+    radius_deg = product.raw_metadata.get("radius_deg")
+    if spec is None or not radius_deg:
+        return None
+    try:
+        field_arcsec = 2.0 * float(radius_deg) * 3600.0
+    except (TypeError, ValueError):
+        return None
+    return field_arcsec / spec.arcsec_per_pixel
+
+
+def _apply_low_detail_guard(view: View, product: SkyViewProductSummary) -> None:
+    """Caveat and down-score near-blob cutouts from coarse-resolution surveys."""
+
+    detail = _native_detail_pixels(product)
+    if detail is None or detail >= LOW_DETAIL_PIXEL_THRESHOLD:
+        return
+    view.caveats.append(
+        f"{product.survey} has coarse native resolution; this field of view "
+        f"spans only about {int(detail)} real survey pixels, so the image "
+        "shows brightness structure, not fine detail."
+    )
+    if view.scores is not None:
+        view.scores.preview_quality = 0.15
+        view.scores.overall = min(view.scores.overall, 0.45)
 
 
 def _has_rendered_visible_rgb(views: list[View]) -> bool:
