@@ -137,34 +137,6 @@ class SkyViewEvidenceService:
         )
         products = list(result.products)
         warning_messages = list(result.warnings)
-        # SDSS covers only ~1/3 of the sky; outside it, fall back to the
-        # all-sky DSS2 plates so a color visible composite exists everywhere.
-        wants_visible = bands is None or BandFamily.VISIBLE in bands
-        visible_count = sum(
-            1 for product in products if product.band_family == BandFamily.VISIBLE
-        )
-        if surveys is None and wants_visible and visible_count < 3:
-            fallback = await self.skyview.search_generated_fits(
-                ra_deg=live_object.coordinates.ra_deg,
-                dec_deg=live_object.coordinates.dec_deg,
-                radius_deg=radius_deg,
-                surveys=["DSS2 Blue", "DSS2 Red", "DSS2 IR"],
-                pixels=bounded_pixels,
-                visual_mode=resolved_visual_mode,
-            )
-            known = {product.source_record_id for product in products}
-            new_products = [
-                product
-                for product in fallback.products
-                if product.source_record_id not in known
-            ]
-            if new_products:
-                products.extend(new_products)
-                warning_messages.append(
-                    "SDSS has no coverage at this position; the visible composite "
-                    "uses the all-sky DSS2 photographic surveys instead."
-                )
-            warning_messages.extend(fallback.warnings)
         object_slug = normalize_query(live_object.name) or "liveobject"
         views = await self._views_for_products(
             object_slug=object_slug,
@@ -174,6 +146,43 @@ class SkyViewEvidenceService:
             stretch=stretch,
             max_views=max_views,
         )
+        # SDSS covers only ~1/3 of the sky, and outside it SkyView still
+        # generates blank cutouts — so coverage gaps only become visible when
+        # the composite render fails. Retry once with the all-sky DSS2 plates
+        # so a color visible composite exists everywhere.
+        wants_visible = bands is None or BandFamily.VISIBLE in bands
+        if surveys is None and wants_visible and not _has_rendered_visible_rgb(views):
+            fallback = await self.skyview.search_generated_fits(
+                ra_deg=live_object.coordinates.ra_deg,
+                dec_deg=live_object.coordinates.dec_deg,
+                radius_deg=radius_deg,
+                surveys=["DSS2 Blue", "DSS2 Red", "DSS2 IR"],
+                pixels=bounded_pixels,
+                visual_mode=resolved_visual_mode,
+            )
+            dss2_products = [
+                product
+                for product in fallback.products
+                if product.band_family == BandFamily.VISIBLE
+            ]
+            if len(dss2_products) >= 3:
+                composite = await self._composite_view_for_products(
+                    object_slug=object_slug,
+                    object_name=live_object.name,
+                    products=dss2_products[:3],
+                    size=size,
+                    stretch=stretch,
+                )
+                if composite.asset is not None:
+                    views = [
+                        composite,
+                        *[view for view in views if not view.id.endswith("visible-rgb")],
+                    ][:max_views]
+                    warning_messages.append(
+                        "SDSS has no usable coverage at this position; the visible "
+                        "composite uses the all-sky DSS2 photographic surveys instead."
+                    )
+            warning_messages.extend(fallback.warnings)
         warnings = [
             WarningMessage(
                 code="LIVE_SKYVIEW_WARNING",
@@ -662,6 +671,14 @@ def _render_concurrency() -> int:
 
 
 skyview_evidence_service = SkyViewEvidenceService()
+
+
+def _has_rendered_visible_rgb(views: list[View]) -> bool:
+    """Whether a visible RGB composite exists and actually rendered an image."""
+
+    return any(
+        view.id.endswith("visible-rgb") and view.asset is not None for view in views
+    )
 
 
 def _visible_composite_products(
