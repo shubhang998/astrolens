@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
+from collections.abc import Coroutine
+from typing import Any
 from uuid import uuid4
 
 from astrolens.connectors.skyview import (
@@ -208,8 +211,17 @@ class SkyViewEvidenceService:
                 )
             )
         # Only render views that will be returned; renders run concurrently in
-        # worker threads so they never block the event loop.
-        return list(await asyncio.gather(*builders[:max_views]))
+        # worker threads so they never block the event loop. Concurrency is
+        # bounded because each render holds FITS payloads plus numpy working
+        # buffers in memory — unbounded fan-out OOMs small containers.
+        semaphore = asyncio.Semaphore(_render_concurrency())
+        selected = builders[:max_views]
+
+        async def bounded(builder: Coroutine[Any, Any, View]) -> View:
+            async with semaphore:
+                return await builder
+
+        return list(await asyncio.gather(*(bounded(builder) for builder in selected)))
 
     async def _composite_view_for_products(
         self,
@@ -556,6 +568,17 @@ class SkyViewEvidenceService:
             f"skyview:{normalize_query(query)}:{band_key}:{survey_key}:"
             f"{max_views}:{radius_deg:.5f}:{pixels}:{resolved_visual_mode.value}:{size}:{stretch}"
         )
+
+
+def _render_concurrency() -> int:
+    """How many SkyView FITS renders may run at once (memory-bound)."""
+
+    configured = os.getenv("ASTROLENS_RENDER_CONCURRENCY", "")
+    try:
+        parsed = int(configured)
+    except ValueError:
+        parsed = 2
+    return max(1, min(parsed if configured else 2, 8))
 
 
 skyview_evidence_service = SkyViewEvidenceService()
