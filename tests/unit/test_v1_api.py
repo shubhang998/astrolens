@@ -59,6 +59,15 @@ def test_search_returns_curated_objects() -> None:
     assert results[0]["id"] == "astro:object:crab_nebula"
 
 
+def test_search_never_matches_across_word_boundaries() -> None:
+    # "vega" is a substring of the normalized concatenation "activegalaxy";
+    # it must not match Centaurus A (or anything else in the seed).
+    assert repository.find_objects("Vega") == []
+    # Word-level and whole-field matching still work.
+    assert [obj.name for obj in repository.find_objects("Cen A")] == ["Centaurus A"]
+    assert "M87" in [obj.name for obj in repository.find_objects("NGC 4486")]
+
+
 def test_evidence_bundle_has_views_assets_citations_reuse_and_caveats() -> None:
     response = client.get(
         "/v1/evidence",
