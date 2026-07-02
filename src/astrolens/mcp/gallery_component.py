@@ -1,6 +1,9 @@
 # ruff: noqa: E501
 """ChatGPT Apps SDK gallery component resources."""
 
+import os
+from urllib.parse import urlsplit
+
 GALLERY_URI = "ui://astrolens/gallery.html"
 
 GALLERY_RESOURCE = {
@@ -10,19 +13,38 @@ GALLERY_RESOURCE = {
     "mimeType": "text/html",
 }
 
+_BASE_WIDGET_DOMAINS = [
+    "https://mast.stsci.edu",
+    "https://archive.stsci.edu",
+    "https://hla.stsci.edu",
+    "http://127.0.0.1:8000",
+    "http://localhost:8000",
+    "https://*.trycloudflare.com",
+]
+
+
+def _widget_domains() -> list[str]:
+    """Base widget CSP domains plus the deployment origin, when configured."""
+
+    domains = list(_BASE_WIDGET_DOMAINS)
+    public_base = os.getenv("ASTROLENS_PUBLIC_BASE_URL", "").strip()
+    if public_base:
+        parts = urlsplit(public_base)
+        if parts.scheme in {"http", "https"} and parts.netloc:
+            origin = f"{parts.scheme}://{parts.netloc}"
+            if origin not in domains:
+                domains.append(origin)
+    return domains
+
+
+_WIDGET_DOMAINS = _widget_domains()
+
 GALLERY_RESOURCE_META = {
     "ui": {
         "prefersBorder": True,
         "csp": {
             "connectDomains": [],
-            "resourceDomains": [
-                "https://mast.stsci.edu",
-                "https://archive.stsci.edu",
-                "https://hla.stsci.edu",
-                "http://127.0.0.1:8000",
-                "http://localhost:8000",
-                "https://*.trycloudflare.com",
-            ],
+            "resourceDomains": list(_WIDGET_DOMAINS),
         },
     },
     "openai/widgetDescription": (
@@ -32,22 +54,8 @@ GALLERY_RESOURCE_META = {
     "openai/widgetPrefersBorder": True,
     "openai/widgetCSP": {
         "connect_domains": [],
-        "resource_domains": [
-            "https://mast.stsci.edu",
-            "https://archive.stsci.edu",
-            "https://hla.stsci.edu",
-            "http://127.0.0.1:8000",
-            "http://localhost:8000",
-            "https://*.trycloudflare.com",
-        ],
-        "redirect_domains": [
-            "https://mast.stsci.edu",
-            "https://archive.stsci.edu",
-            "https://hla.stsci.edu",
-            "http://127.0.0.1:8000",
-            "http://localhost:8000",
-            "https://*.trycloudflare.com",
-        ],
+        "resource_domains": list(_WIDGET_DOMAINS),
+        "redirect_domains": list(_WIDGET_DOMAINS),
     },
 }
 

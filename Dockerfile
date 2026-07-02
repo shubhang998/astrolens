@@ -7,11 +7,12 @@ ENV UV_LINK_MODE=copy \
     PATH="/app/.venv/bin:$PATH"
 
 # Install locked dependencies first so source edits do not invalidate this layer.
+# The skyview extra enables live SkyView FITS cutouts in deployed containers.
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-install-project --no-dev
+RUN uv sync --frozen --no-install-project --no-dev --extra skyview
 
 COPY src ./src
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --extra skyview
 
 RUN useradd --create-home --uid 1000 astrolens \
     && mkdir -p /app/.astrolens-cache \
