@@ -180,7 +180,7 @@ def test_create_render_recipe_includes_rgb_mapping_dimensions_and_ids() -> None:
 
     recipe = create_render_recipe(request)
 
-    assert recipe.cache_key.startswith("fits-render:v13:")
+    assert recipe.cache_key.startswith("fits-render:v14:")
     assert recipe.asset_id.startswith("asset:fits-render:")
     assert recipe.width == 512
     assert recipe.height == 512
@@ -563,6 +563,69 @@ def test_resolution_mismatch_adds_pixel_scale_caveat(tmp_path) -> None:
 
     assert result.recipe is not None
     assert any("resolutions differ" in caveat.lower() for caveat in result.recipe.caveats)
+
+
+def test_tint_for_wavelength_follows_band_conventions() -> None:
+    from astrolens.services.fits_renderer import tint_for_wavelength
+
+    assert tint_for_wavelength(None) is None
+    assert tint_for_wavelength(606.0) is None  # visible stays neutral
+
+    def band(wavelength_nm: float) -> str:
+        tint = tint_for_wavelength(wavelength_nm)
+        assert tint is not None, wavelength_nm
+        return tint[0]
+
+    assert band(1.2) == "xray"
+    assert band(230.0) == "ultraviolet"
+    assert band(2200.0) == "infrared"
+    assert band(1_382_000.0) == "millimeter"
+    assert band(214_000_000.0) == "radio"
+    assert band(0.001) == "gamma"
+
+
+def _rendered_channel_means(tmp_path, wavelength_nm: float):
+    import numpy as np
+    from PIL import Image
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    fits_path = tmp_path / f"single_{int(wavelength_nm * 1000)}_drz.fits"
+    _write_wcs_fits(fits_path, shape=(96, 96), crpix=(48.5, 48.5))
+    renderer = FitsRenderer(
+        dependencies=FitsRendererDependencies(astropy=True, numpy=True, pillow=True),
+        cache_dir=tmp_path / "renders",
+        allow_file_urls=True,
+    )
+    result = renderer.render(
+        FitsRenderRequest(
+            products=[_local_fits_product("solo", fits_path, wavelength_nm=wavelength_nm)],
+            width=96,
+            height=96,
+        )
+    )
+    assert result.status == "complete"
+    assert result.file_path is not None
+    with Image.open(result.file_path) as rendered:
+        rgb = np.asarray(rendered.convert("RGB"), dtype=float)
+    return result, rgb[:, :, 0].mean(), rgb[:, :, 1].mean(), rgb[:, :, 2].mean()
+
+
+def test_single_band_renders_are_tinted_by_band(tmp_path) -> None:
+    # Infrared leans warm (R > B); X-ray leans cool (B > R); visible stays gray.
+    result_ir, red_ir, _g, blue_ir = _rendered_channel_means(tmp_path / "ir", 2200.0)
+    assert red_ir > blue_ir * 1.1
+    assert result_ir.recipe is not None
+    assert any("infrared" in caveat for caveat in result_ir.recipe.caveats)
+
+    result_x, red_x, _g, blue_x = _rendered_channel_means(tmp_path / "xray", 1.2)
+    assert blue_x > red_x * 1.1
+    assert result_x.recipe is not None
+    assert any("xray" in caveat for caveat in result_x.recipe.caveats)
+
+    result_v, red_v, green_v, blue_v = _rendered_channel_means(tmp_path / "vis", 606.0)
+    assert abs(red_v - blue_v) < 2.0 and abs(green_v - blue_v) < 2.0
+    assert result_v.recipe is not None
+    assert not any("false-color tint" in caveat for caveat in result_v.recipe.caveats)
 
 
 def test_cache_key_and_asset_id_are_stable_for_same_products_in_different_order() -> None:

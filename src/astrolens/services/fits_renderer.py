@@ -26,7 +26,7 @@ from pydantic import Field
 
 from astrolens.core.models import AstroLensModel, DataProduct
 
-RENDER_PIPELINE_VERSION = "fits-render:v13"
+RENDER_PIPELINE_VERSION = "fits-render:v14"
 DEFAULT_RENDER_CACHE_DIR = ".astrolens-cache/renders"
 DEFAULT_MAX_SOURCE_FILE_MB = 300.0
 # Hosts (matched by registered-domain suffix) the renderer may download FITS
@@ -1189,7 +1189,34 @@ def _compose_rgb_image(
         strength = 2.15 if len(unique_product_ids) == 2 else 1.55
         rgb = _boost_color_separation(rgb, strength=strength)
         rgb = _suppress_neon_channel_artifacts(rgb)
+    elif len(unique_product_ids) == 1:
+        tint = tint_for_wavelength(recipe.rgb_mapping.red.wavelength_nm)
+        if tint is not None:
+            band_name, hue = tint
+            rgb = _apply_band_tint(rgb, hue)
+            caveat = (
+                f"Single-band image shown in the conventional {band_name} "
+                "false-color tint; brightness is real data, hue is presentational."
+            )
+            if caveat not in recipe.caveats:
+                recipe.caveats.append(caveat)
     return Image.fromarray((np.clip(rgb, 0.0, 1.0) * 255.0).astype(np.uint8))
+
+
+def _apply_band_tint(rgb: Any, hue: tuple[float, float, float]) -> Any:
+    """Map grayscale intensity through a black -> hue -> white duotone."""
+
+    import numpy as np
+
+    intensity = rgb[:, :, 0]
+    tinted = np.empty_like(rgb)
+    for channel_index in range(3):
+        tinted[:, :, channel_index] = np.interp(
+            intensity,
+            [0.0, 0.55, 1.0],
+            [0.0, hue[channel_index] * 0.85, 1.0],
+        )
+    return tinted
 
 
 def _should_synthesize_green(recipe: RenderRecipe) -> bool:
@@ -1334,6 +1361,35 @@ def _box_mean_2d(values: Any, *, radius: int) -> Any:
 
 
 MAX_PIXEL_SCALE_RATIO = 4.0
+
+# Observatory-conventional false-color tints for single-band renders
+# (Chandra blue for X-ray, radio orange, Spitzer/WISE amber for IR, ...).
+# Visible-band single filters stay neutral: grayscale is the honest choice
+# there. Each hue is the midpoint of a black -> hue -> white duotone.
+BAND_TINTS_BY_WAVELENGTH_NM: tuple[tuple[float, str, tuple[float, float, float]], ...] = (
+    (0.01, "gamma", (0.85, 0.35, 0.95)),
+    (10.0, "xray", (0.45, 0.60, 1.00)),
+    (380.0, "ultraviolet", (0.62, 0.45, 0.98)),
+    (750.0, "visible", (0.0, 0.0, 0.0)),  # sentinel: no tint
+    (300_000.0, "infrared", (1.00, 0.62, 0.30)),
+    (10_000_000.0, "millimeter", (0.35, 0.85, 0.80)),
+    (float("inf"), "radio", (1.00, 0.50, 0.25)),
+)
+
+
+def tint_for_wavelength(
+    wavelength_nm: float | None,
+) -> tuple[str, tuple[float, float, float]] | None:
+    """Conventional false-color tint for a band, or None for visible/unknown."""
+
+    if wavelength_nm is None or wavelength_nm <= 0:
+        return None
+    for upper_bound, band_name, hue in BAND_TINTS_BY_WAVELENGTH_NM:
+        if wavelength_nm < upper_bound:
+            if band_name == "visible":
+                return None
+            return band_name, hue
+    return None
 
 
 def pixel_scale_ratio(images: Any) -> float | None:
