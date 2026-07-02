@@ -273,9 +273,14 @@ class SkyViewEvidenceService:
         max_views: int,
     ) -> list[View]:
         builders = []
-        composite_products = _visible_composite_products(products)
         used_source_record_ids: set[str] = set()
-        if len(composite_products) >= 3:
+        composite_products_by_band = {
+            BandFamily.VISIBLE: _visible_composite_products(products),
+            BandFamily.INFRARED: _infrared_composite_products(products),
+        }
+        for band, composite_products in composite_products_by_band.items():
+            if len(composite_products) < 3:
+                continue
             builders.append(
                 self._composite_view_for_products(
                     object_slug=object_slug,
@@ -283,6 +288,7 @@ class SkyViewEvidenceService:
                     products=composite_products,
                     size=size,
                     stretch=stretch,
+                    band=band,
                 )
             )
             used_source_record_ids.update(
@@ -321,8 +327,11 @@ class SkyViewEvidenceService:
         products: list[SkyViewProductSummary],
         size: str,
         stretch: str,
+        band: BandFamily = BandFamily.VISIBLE,
     ) -> View:
-        observation_id = f"obs:skyview:{object_slug}:visible-rgb"
+        suffix = _composite_suffix(band)
+        band_label = _composite_band_label(band)
+        observation_id = f"obs:skyview:{object_slug}:{suffix}"
         data_products = [
             self._data_product_for_skyview_product(observation_id, product)
             for product in products
@@ -330,7 +339,7 @@ class SkyViewEvidenceService:
         render_result = await asyncio.to_thread(
             self.renderer.render,
             FitsRenderRequest(
-                object_id=f"skyview:{object_slug}:visible-rgb",
+                object_id=f"skyview:{object_slug}:{suffix}",
                 products=[
                     SourceFitsProduct.from_data_product(product)
                     for product in data_products
@@ -347,28 +356,22 @@ class SkyViewEvidenceService:
             render_result=render_result,
             size=size,
             stretch=stretch,
+            band=band,
         )
         surveys = ", ".join(product.survey for product in products)
         return View(
-            id=f"view:{object_slug}:skyview:visible-rgb",
-            label=f"{object_name} SkyView visible RGB composite",
-            band_family=BandFamily.VISIBLE,
+            id=f"view:{object_slug}:skyview:{suffix}",
+            label=f"{object_name} SkyView {band_label} RGB composite",
+            band_family=band,
             facility="NASA SkyView",
             instrument=surveys,
             source_archive="SkyView",
             asset=asset,
             raw_products=data_products,
-            facts=[self._fact_for_composite(object_slug, object_name, products)],
+            facts=[self._fact_for_composite(object_slug, object_name, products, band=band)],
             reuse=SKYVIEW_REUSE,
             citations=[SKYVIEW_CITATION],
-            caveats=[
-                "AstroLens rendered this RGB composite from multiple SkyView survey FITS "
-                "cutouts; it is not an official outreach image.",
-                "Visible-band colors are representative channel mappings and depend on "
-                "stretch, survey depth, and WCS reprojection.",
-                "SkyView survey coverage varies; outside SDSS coverage, use DSS fallback "
-                "surveys or another archive.",
-            ],
+            caveats=_composite_caveats(band),
             scores=ViewScores(
                 object_match=0.9,
                 public_access=1.0,
@@ -545,11 +548,13 @@ class SkyViewEvidenceService:
         render_result: FitsRenderResult,
         size: str,
         stretch: str,
+        band: BandFamily = BandFamily.VISIBLE,
     ) -> Asset | None:
         if render_result.status != "complete" or not render_result.asset_url:
             return None
         recipe = render_result.recipe
-        fallback_asset_id = f"asset:{object_slug}:skyview:visible-rgb"
+        band_label = _composite_band_label(band)
+        fallback_asset_id = f"asset:{object_slug}:skyview:{_composite_suffix(band)}"
         filters = ", ".join(product.survey for product in products)
         return Asset(
             id=render_result.asset_id or fallback_asset_id,
@@ -560,14 +565,14 @@ class SkyViewEvidenceService:
             height=recipe.height if recipe else None,
             asset_url=render_result.asset_url,
             thumbnail_url=render_result.asset_url,
-            false_color=False,
+            false_color=band != BandFamily.VISIBLE,
             processing_note=(
-                f"AstroLens-rendered visible RGB composite from SkyView FITS cutouts "
+                f"AstroLens-rendered {band_label} RGB composite from SkyView FITS cutouts "
                 f"using {stretch} stretch at {size} size."
             ),
             selection_reason=(
-                "Selected as the highest-legibility SkyView visible view because multiple "
-                "aligned optical filters were available."
+                f"Selected as the highest-legibility SkyView {band_label} view because "
+                "multiple aligned filters were available."
             ),
             target_validation=TargetValidation(
                 status=TargetValidationStatus.CENTERED,
@@ -624,14 +629,18 @@ class SkyViewEvidenceService:
         object_slug: str,
         object_name: str,
         products: list[SkyViewProductSummary],
+        *,
+        band: BandFamily = BandFamily.VISIBLE,
     ) -> Fact:
         surveys = ", ".join(product.survey for product in products)
+        suffix = _composite_suffix(band)
+        band_label = _composite_band_label(band)
         return Fact(
-            id=f"fact:{object_slug}:skyview:visible-rgb",
+            id=f"fact:{object_slug}:skyview:{suffix}",
             entity_type="generated_composite",
-            entity_id=f"view:{object_slug}:skyview:visible-rgb",
+            entity_id=f"view:{object_slug}:skyview:{suffix}",
             claim=(
-                f"SkyView returned public visible-band FITS cutouts ({surveys}) around "
+                f"SkyView returned public {band_label}-band FITS cutouts ({surveys}) around "
                 f"{object_name}'s resolved coordinates, and AstroLens rendered them as "
                 "an RGB composite."
             ),
@@ -737,3 +746,54 @@ def _visible_composite_products(
     if len(preferred) >= 3:
         return sorted(preferred, key=lambda product: product.wavelength_nm or 0.0)
     return sorted(visible, key=lambda product: product.wavelength_nm or 0.0)[:3]
+
+
+def _infrared_composite_products(
+    products: list[SkyViewProductSummary],
+) -> list[SkyViewProductSummary]:
+    """Pick three distinct-wavelength infrared cutouts for an RGB composite."""
+
+    distinct_by_wavelength: dict[float, SkyViewProductSummary] = {}
+    for product in products:
+        if product.band_family != BandFamily.INFRARED or product.wavelength_nm is None:
+            continue
+        distinct_by_wavelength.setdefault(product.wavelength_nm, product)
+    infrared = list(distinct_by_wavelength.values())
+    if len(infrared) < 3:
+        return []
+    preferred = [
+        product
+        for product in infrared
+        if normalize_query(product.survey) in {"2massj", "2massh", "2massk"}
+    ]
+    if len(preferred) >= 3:
+        return sorted(preferred, key=lambda product: product.wavelength_nm or 0.0)[:3]
+    return sorted(infrared, key=lambda product: product.wavelength_nm or 0.0)[:3]
+
+
+def _composite_suffix(band: BandFamily) -> str:
+    return f"{band}-rgb"
+
+
+def _composite_band_label(band: BandFamily) -> str:
+    return str(band)
+
+
+def _composite_caveats(band: BandFamily) -> list[str]:
+    if band == BandFamily.INFRARED:
+        return [
+            "AstroLens rendered this RGB composite from multiple SkyView survey FITS "
+            "cutouts; it is not an official outreach image.",
+            "Infrared colors are representative channel mappings (shortest wavelength "
+            "to blue, longest to red), not natural human vision.",
+            "SkyView survey coverage, depth, and resolution vary; near-infrared "
+            "surveys emphasize cooler stars and dust-penetrating structure.",
+        ]
+    return [
+        "AstroLens rendered this RGB composite from multiple SkyView survey FITS "
+        "cutouts; it is not an official outreach image.",
+        "Visible-band colors are representative channel mappings and depend on "
+        "stretch, survey depth, and WCS reprojection.",
+        "SkyView survey coverage varies; outside SDSS coverage, use DSS fallback "
+        "surveys or another archive.",
+    ]

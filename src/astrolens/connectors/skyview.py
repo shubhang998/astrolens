@@ -214,7 +214,8 @@ SURVEY_SPECS: tuple[SkyViewSurveySpec, ...] = (
 
 DEFAULT_SURVEY_NAMES_BY_BAND: dict[BandFamily, tuple[str, ...]] = {
     BandFamily.VISIBLE: ("SDSSg", "SDSSr", "SDSSi"),
-    BandFamily.INFRARED: ("2MASS-K",),
+    # J/H/K together enable a true near-infrared RGB composite downstream.
+    BandFamily.INFRARED: ("2MASS-J", "2MASS-H", "2MASS-K"),
     BandFamily.ULTRAVIOLET: ("GALEX Near UV",),
     BandFamily.XRAY: ("RASS-Cnt Broad",),
     BandFamily.RADIO: ("VLA FIRST (1.4 GHz)",),

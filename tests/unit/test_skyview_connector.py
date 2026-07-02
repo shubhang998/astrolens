@@ -27,6 +27,8 @@ class FakeSkyViewClient:
             "https://skyview.example.test/sdss-g.fits",
             "https://skyview.example.test/sdss-r.fits",
             "https://skyview.example.test/sdss-i.fits",
+            "https://skyview.example.test/2mass-j.fits",
+            "https://skyview.example.test/2mass-h.fits",
             "https://skyview.example.test/2mass-k.fits",
         ]
         self.error = error
@@ -166,13 +168,22 @@ def test_skyview_connector_normalizes_generated_fits_products() -> None:
         "SDSSg",
         "SDSSr",
         "SDSSi",
+        "2MASS-J",
+        "2MASS-H",
         "2MASS-K",
     ]
     assert result.products[0].download_url == "https://skyview.example.test/sdss-g.fits"
     assert result.products[0].source_record_id.startswith("skyview:sdssg:")
     assert result.products[0].raw_metadata["pixels"] == 256
     assert result.products[0].raw_metadata["visual_mode"] == "wide"
-    assert client.calls[0]["survey"] == ["SDSSg", "SDSSr", "SDSSi", "2MASS-K"]
+    assert client.calls[0]["survey"] == [
+        "SDSSg",
+        "SDSSr",
+        "SDSSi",
+        "2MASS-J",
+        "2MASS-H",
+        "2MASS-K",
+    ]
     assert client.calls[0]["pixels"] == 256
 
 
@@ -189,8 +200,9 @@ class PerSurveyFakeClient:
 
 
 def test_skyview_connector_requeries_per_survey_on_url_count_mismatch() -> None:
-    # SDSSr missing: a bulk query returns 3 URLs for 4 surveys. Positional
-    # pairing would attribute SDSSi's FITS to SDSSr and corrupt provenance.
+    # SDSSr and 2MASS-J/H missing: a bulk query returns 3 URLs for 6 surveys.
+    # Positional pairing would attribute SDSSi's FITS to SDSSr and corrupt
+    # provenance.
     client = PerSurveyFakeClient(
         {
             "SDSSg": "https://skyview.example.test/sdss-g.fits",
@@ -391,6 +403,166 @@ def test_skyview_bundle_with_failed_renders_is_not_cached() -> None:
     # Each attempt performs the default search plus one DSS2 coverage retry
     # (the composite render failed); nothing is cached, so both repeat.
     assert connector.calls == 4
+
+
+def _infrared_product(survey: str, wavelength_nm: float) -> SkyViewProductSummary:
+    slug = survey.replace("-", "").lower()
+    return SkyViewProductSummary(
+        survey=survey,
+        band_family=BandFamily.INFRARED,
+        wavelength_nm=wavelength_nm,
+        download_url=f"https://skyview.example.test/{slug}.fits",
+        source_record_id=f"skyview:{slug}:187.7059308:12.3911233:0.03000:256",
+    )
+
+
+class InfraredJHKConnector:
+    """Fake connector returning the 2MASS J/H/K infrared trio."""
+
+    async def search_generated_fits(self, **kwargs: Any) -> SkyViewSearchResult:
+        return SkyViewSearchResult(
+            request=kwargs,
+            products=[
+                _infrared_product("2MASS-J", 1250.0),
+                _infrared_product("2MASS-H", 1650.0),
+                _infrared_product("2MASS-K", 2200.0),
+            ],
+        )
+
+
+class VisibleAndInfraredConnector(FakeSkyViewEvidenceConnector):
+    async def search_generated_fits(self, **kwargs: Any) -> SkyViewSearchResult:
+        result = await super().search_generated_fits(**kwargs)
+        result.products.extend(
+            [
+                _infrared_product("2MASS-J", 1250.0),
+                _infrared_product("2MASS-H", 1650.0),
+                _infrared_product("2MASS-K", 2200.0),
+            ]
+        )
+        return result
+
+
+def test_infrared_band_defaults_request_the_2mass_jhk_trio() -> None:
+    from astrolens.connectors.skyview import DEFAULT_SURVEY_NAMES_BY_BAND
+
+    assert DEFAULT_SURVEY_NAMES_BY_BAND[BandFamily.INFRARED] == (
+        "2MASS-J",
+        "2MASS-H",
+        "2MASS-K",
+    )
+
+    client = FakeSkyViewClient(
+        urls=[
+            "https://skyview.example.test/2mass-j.fits",
+            "https://skyview.example.test/2mass-h.fits",
+            "https://skyview.example.test/2mass-k.fits",
+        ]
+    )
+    connector = SkyViewConnector(client=client)
+    result = asyncio.run(
+        connector.search_generated_fits(
+            ra_deg=187.70593077,
+            dec_deg=12.39112325,
+            bands=[BandFamily.INFRARED],
+        )
+    )
+
+    assert client.calls[0]["survey"] == ["2MASS-J", "2MASS-H", "2MASS-K"]
+    assert {product.band_family for product in result.products} == {BandFamily.INFRARED}
+
+
+def test_infrared_jhk_products_build_an_infrared_rgb_composite() -> None:
+    renderer = FakeRenderer()
+    service = SkyViewEvidenceService(
+        resolver=FakeResolver(),  # type: ignore[arg-type]
+        skyview=InfraredJHKConnector(),  # type: ignore[arg-type]
+        renderer=renderer,  # type: ignore[arg-type]
+    )
+
+    bundle = asyncio.run(
+        service.bundle_for_query(
+            "M87",
+            bands=[BandFamily.INFRARED],
+            pixels=256,
+            max_views=4,
+        )
+    )
+
+    assert len(bundle.views) == 1
+    view = bundle.views[0]
+    assert view.id == "view:m87:skyview:infrared-rgb"
+    assert view.label == "M87 SkyView infrared RGB composite"
+    assert view.band_family == BandFamily.INFRARED
+    assert len(view.raw_products) == 3
+    assert view.asset is not None
+    assert view.asset.false_color is True
+    assert "infrared RGB composite" in str(view.asset.processing_note)
+    assert view.facts[0].id == "fact:m87:skyview:infrared-rgb"
+    # The composite consumed all three cutouts; no single-survey views remain.
+    assert not any("2mass" in view.id for view in bundle.views)
+    assert len(renderer.requests) == 1
+    assert len(renderer.requests[0].products) == 3
+    wavelengths = sorted(
+        product.wavelength_nm or 0.0 for product in renderer.requests[0].products
+    )
+    assert wavelengths == [1250.0, 1650.0, 2200.0]
+
+
+def test_visible_and_infrared_composites_coexist_and_exclude_their_singles() -> None:
+    renderer = FakeRenderer()
+    service = SkyViewEvidenceService(
+        resolver=FakeResolver(),  # type: ignore[arg-type]
+        skyview=VisibleAndInfraredConnector(),  # type: ignore[arg-type]
+        renderer=renderer,  # type: ignore[arg-type]
+    )
+
+    bundle = asyncio.run(service.bundle_for_query("M87", pixels=256, max_views=6))
+
+    view_ids = [view.id for view in bundle.views]
+    assert view_ids == [
+        "view:m87:skyview:visible-rgb",
+        "view:m87:skyview:infrared-rgb",
+    ]
+    visible = bundle.views[0]
+    infrared = bundle.views[1]
+    assert visible.asset is not None and visible.asset.false_color is False
+    assert infrared.asset is not None and infrared.asset.false_color is True
+    assert len(visible.raw_products) == 3
+    assert len(infrared.raw_products) == 3
+
+
+def test_fewer_than_three_distinct_infrared_wavelengths_keep_single_views() -> None:
+    class TwoBandInfraredConnector:
+        async def search_generated_fits(self, **kwargs: Any) -> SkyViewSearchResult:
+            return SkyViewSearchResult(
+                request=kwargs,
+                products=[
+                    _infrared_product("2MASS-J", 1250.0),
+                    _infrared_product("2MASS-K", 2200.0),
+                ],
+            )
+
+    service = SkyViewEvidenceService(
+        resolver=FakeResolver(),  # type: ignore[arg-type]
+        skyview=TwoBandInfraredConnector(),  # type: ignore[arg-type]
+        renderer=FakeRenderer(),  # type: ignore[arg-type]
+    )
+
+    bundle = asyncio.run(
+        service.bundle_for_query(
+            "M87",
+            bands=[BandFamily.INFRARED],
+            pixels=256,
+            max_views=4,
+        )
+    )
+
+    view_ids = {view.id for view in bundle.views}
+    assert view_ids == {
+        "view:m87:skyview:2massj",
+        "view:m87:skyview:2massk",
+    }
 
 
 def test_skyview_evidence_service_builds_rendered_views() -> None:
