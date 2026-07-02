@@ -135,11 +135,41 @@ class SkyViewEvidenceService:
             pixels=bounded_pixels,
             visual_mode=resolved_visual_mode,
         )
+        products = list(result.products)
+        warning_messages = list(result.warnings)
+        # SDSS covers only ~1/3 of the sky; outside it, fall back to the
+        # all-sky DSS2 plates so a color visible composite exists everywhere.
+        wants_visible = bands is None or BandFamily.VISIBLE in bands
+        visible_count = sum(
+            1 for product in products if product.band_family == BandFamily.VISIBLE
+        )
+        if surveys is None and wants_visible and visible_count < 3:
+            fallback = await self.skyview.search_generated_fits(
+                ra_deg=live_object.coordinates.ra_deg,
+                dec_deg=live_object.coordinates.dec_deg,
+                radius_deg=radius_deg,
+                surveys=["DSS2 Blue", "DSS2 Red", "DSS2 IR"],
+                pixels=bounded_pixels,
+                visual_mode=resolved_visual_mode,
+            )
+            known = {product.source_record_id for product in products}
+            new_products = [
+                product
+                for product in fallback.products
+                if product.source_record_id not in known
+            ]
+            if new_products:
+                products.extend(new_products)
+                warning_messages.append(
+                    "SDSS has no coverage at this position; the visible composite "
+                    "uses the all-sky DSS2 photographic surveys instead."
+                )
+            warning_messages.extend(fallback.warnings)
         object_slug = normalize_query(live_object.name) or "liveobject"
         views = await self._views_for_products(
             object_slug=object_slug,
             object_name=live_object.name,
-            products=result.products,
+            products=products,
             size=size,
             stretch=stretch,
             max_views=max_views,
@@ -151,7 +181,7 @@ class SkyViewEvidenceService:
                 source="SkyView",
                 retryable=True,
             )
-            for message in result.warnings
+            for message in warning_messages
         ]
         if not views:
             warnings.append(

@@ -208,6 +208,30 @@ def test_show_object_prefers_composite_hero_and_bands_panels() -> None:
     assert payload["suggested_followups"]
 
 
+def test_hero_prefers_a_color_view_over_a_grayscale_archive_preview() -> None:
+    # Ranked first: a single-filter archive preview (often grayscale).
+    # Ranked second: a three-channel color composite. The hero slot should
+    # take the color view; the preview remains available as the panel.
+    gray_preview = _view("hst-single", BandFamily.VISIBLE)
+    composite = _view("dss2-rgb", BandFamily.VISIBLE)
+    composite.asset.source_product_ids = ["p1", "p2", "p3"]  # type: ignore[union-attr]
+    service = _service(_bundle([gray_preview, composite]))
+
+    payload = asyncio.run(service.show_object("Crab Nebula"))
+
+    assert payload["hero_view"]["id"] == "view:dss2-rgb"
+    assert [v["id"] for v in payload["views"]] == ["view:dss2-rgb", "view:hst-single"]
+
+
+def test_hero_stays_ranked_first_when_no_color_view_is_near_the_top() -> None:
+    views = [_view(f"gray-{i}", BandFamily.VISIBLE) for i in range(4)]
+    service = _service(_bundle(views))
+
+    payload = asyncio.run(service.show_object("M87"))
+
+    assert payload["hero_view"]["id"] == "view:gray-0"
+
+
 def test_show_object_does_not_show_the_same_image_twice() -> None:
     # Two same-band views sharing one asset URL must collapse to a single image.
     dup_a = _view("a", BandFamily.VISIBLE)

@@ -75,13 +75,12 @@ class ShowcaseService:
             # proxy time limits on small instances.
             size="thumbnail",
         )
-        hero = bundle.views[0] if bundle.views else None
+        hero = _prefer_color_hero(bundle.views)
+        remaining = [view for view in bundle.views if view is not hero]
         # Show only the two best images: the hero plus the best genuinely
         # different supporting view (distinct band and distinct image), so the
         # two slots never duplicate the same observation.
-        panels = _distinct_panels(hero, bundle.views[1:] if hero else bundle.views)[
-            : MAX_SHOWN_IMAGES - 1
-        ]
+        panels = _distinct_panels(hero, remaining)[: MAX_SHOWN_IMAGES - 1]
         shown_views = ([hero] if hero else []) + panels
         return {
             "object": bundle.object.model_dump(mode="json"),
@@ -231,6 +230,34 @@ def _band_panels(views: list[View]) -> list[View]:
         if len(panels) >= MAX_PANELS:
             break
     return panels
+
+
+def _prefer_color_hero(views: list[View]) -> View | None:
+    """Pick the hero: the first color image among the top-ranked views.
+
+    Archive previews of single-filter exposures are often grayscale; when a
+    color view (multi-channel composite or tinted render) sits within the top
+    three ranked views, it makes the better lead image. Ranking is otherwise
+    respected — this is presentation policy, not a re-rank.
+    """
+
+    if not views:
+        return None
+    for view in views[:3]:
+        if _is_color_view(view):
+            return view
+    return views[0]
+
+
+def _is_color_view(view: View) -> bool:
+    asset = view.asset
+    if asset is None:
+        return False
+    if str(view.band_family) == str(BandFamily.MULTIWAVELENGTH):
+        return True
+    if len(asset.source_product_ids) >= 3:
+        return True  # three-channel composite (e.g. SDSS/DSS2 RGB)
+    return asset.false_color is True  # band-tinted single-channel render
 
 
 def _distinct_panels(hero: View | None, views: list[View]) -> list[View]:
